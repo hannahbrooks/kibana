@@ -226,8 +226,11 @@ export class TaskRunner<
       // with the update of our rule since we are putting back the running attribute
       // back to false
       await this.ruleRunning.waitFor();
-      // eslint-disable-next-line no-empty
-    } catch {}
+    } catch (err) {
+      this.logger.warn(
+        `error waiting for rule running handler for ${this.ruleType.id}:${ruleId} ${err.message}`
+      );
+    }
     try {
       await partiallyUpdateRuleWithEs(
         client,

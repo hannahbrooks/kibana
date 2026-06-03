@@ -116,7 +116,7 @@ export const AddRuleAttachmentToChatButton: React.FC<AddRuleAttachmentToChatButt
         text: attachmentData,
         attachmentLabel,
         intent,
-        ...(linkedRuleId ? { ruleId: linkedRuleId } : {}),
+        ...(linkedRuleId ? { ruleId: linkedRuleId, originalText: attachmentData } : {}),
       },
       // description populates the chat's "Attachment added: …" label.
       attachmentDescription: attachmentLabel,

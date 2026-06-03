@@ -17,12 +17,15 @@ export interface AiRuleCreationSession {
 
 export class AiRuleCreationService {
   private readonly saveRuleSubject = new Subject<RuleResponse>();
+  private readonly ruleSavedSubject = new Subject<RuleResponse>();
   private readonly savingSubject = new BehaviorSubject<boolean>(false);
   private readonly aiRuleSubject = new BehaviorSubject<RuleResponse | null>(null);
   private readonly formSyncSubject = new BehaviorSubject<boolean>(false);
   private session: AiRuleCreationSession | null = null;
 
   public readonly saveRuleRequest$ = this.saveRuleSubject.asObservable();
+  /** Emits with the full saved RuleResponse after each successful save. */
+  public readonly ruleSaved$ = this.ruleSavedSubject.asObservable();
   public readonly saving$ = this.savingSubject.pipe(distinctUntilChanged());
   public readonly aiCreatedRule$ = this.aiRuleSubject.asObservable();
   public readonly formSyncActive$ = this.formSyncSubject.pipe(distinctUntilChanged());
@@ -49,6 +52,10 @@ export class AiRuleCreationService {
   public requestSaveRule = (rule: RuleResponse): void => {
     this.savingSubject.next(true);
     this.saveRuleSubject.next(rule);
+  };
+
+  public notifyRuleSaved = (rule: RuleResponse): void => {
+    this.ruleSavedSubject.next(rule);
   };
 
   public clearSaving = (): void => {

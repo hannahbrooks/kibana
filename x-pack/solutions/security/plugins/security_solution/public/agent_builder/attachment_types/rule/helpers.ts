@@ -37,6 +37,8 @@ export type RuleAttachment = Attachment<
      * Absent on legacy attachments — falls back to ruleId/origin presence.
      */
     intent?: RuleAttachmentIntent;
+    /** Original text of the rule, used to compare with the current text to detect changes. */
+    originalText?: string;
   }
 >;
 

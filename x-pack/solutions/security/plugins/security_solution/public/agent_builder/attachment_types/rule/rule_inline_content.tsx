@@ -9,6 +9,7 @@ import React, { useMemo } from 'react';
 import useObservable from 'react-use/lib/useObservable';
 import { i18n } from '@kbn/i18n';
 import {
+  EuiAccordion,
   EuiBadge,
   EuiCallOut,
   EuiCodeBlock,
@@ -34,6 +35,7 @@ import {
 } from './helpers';
 import type { RuleAttachment } from './helpers';
 import { INDEX_FIELD_LABEL, RULE_TYPE_FIELD_LABEL } from './translations';
+import { RuleDiffTab } from '../../../detection_engine/rule_management/components/rule_details/rule_diff_tab';
 
 const SectionHeading: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <EuiText size="s">
@@ -113,6 +115,20 @@ export const RuleInlineContent: React.FC<RuleInlineContentProps> = ({
   const isSaving = useObservable(aiRuleCreation.saving$, false);
 
   const rule = useMemo(() => parseRuleFromAttachment(attachment), [attachment]);
+
+  // Parse the frozen baseline snapshot for the diff view. Present only on edit-intent
+  // attachments; absent on create-intent attachments (new rules) — no diff shown there.
+  const originalRule = useMemo(() => {
+    const originalText = attachment.data?.originalText;
+    if (!originalText) return null;
+    try {
+      const parsed = JSON.parse(originalText);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+      return parsed as RuleResponse;
+    } catch {
+      return null;
+    }
+  }, [attachment]);
 
   const intent = getRuleAttachmentIntent(attachment);
   const ruleId = getRuleIdFromAttachment(attachment);
@@ -221,6 +237,41 @@ export const RuleInlineContent: React.FC<RuleInlineContentProps> = ({
         <>
           <EuiSpacer size="xs" />
           <ScheduleDisplay interval={interval} from={from} />
+        </>
+      )}
+
+      {originalRule && attachment.data?.originalText !== attachment.data?.text && (
+        <>
+          <EuiSpacer size="s" />
+          <EuiAccordion
+            id="rule-diff-accordion"
+            buttonContent={i18n.translate(
+              'xpack.securitySolution.agentBuilder.ruleAttachment.diffAccordionLabel',
+              { defaultMessage: 'Changes from saved rule' }
+            )}
+            paddingSize="none"
+          >
+            <RuleDiffTab
+              oldRule={originalRule as unknown as RuleResponse}
+              newRule={rule}
+              leftDiffSideLabel={i18n.translate(
+                'xpack.securitySolution.agentBuilder.ruleAttachment.diffSavedLabel',
+                { defaultMessage: 'Saved' }
+              )}
+              rightDiffSideLabel={i18n.translate(
+                'xpack.securitySolution.agentBuilder.ruleAttachment.diffAiLabel',
+                { defaultMessage: 'AI suggested' }
+              )}
+              leftDiffSideDescription={i18n.translate(
+                'xpack.securitySolution.agentBuilder.ruleAttachment.diffSavedDescription',
+                { defaultMessage: 'The rule as it was when added to chat' }
+              )}
+              rightDiffSideDescription={i18n.translate(
+                'xpack.securitySolution.agentBuilder.ruleAttachment.diffAiDescription',
+                { defaultMessage: 'The rule as suggested by the AI assistant' }
+              )}
+            />
+          </EuiAccordion>
         </>
       )}
 

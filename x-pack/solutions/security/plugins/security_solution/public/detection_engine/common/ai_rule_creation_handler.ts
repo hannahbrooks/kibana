@@ -16,11 +16,7 @@ import type {
   RuleUpdateProps,
 } from '../../../common/api/detection_engine/model/rule_schema';
 import { EsqlRuleCreateProps } from '../../../common/api/detection_engine/model/rule_schema';
-import {
-  SecurityAgentBuilderAttachments,
-  SECURITY_RULE_ATTACHMENT_ID,
-  DETECTION_ENGINE_RULES_URL,
-} from '../../../common/constants';
+import { SECURITY_RULE_ATTACHMENT_ID, DETECTION_ENGINE_RULES_URL } from '../../../common/constants';
 import { RULE_MANAGEMENT_RULES_URL_SEARCH } from '../../../common/api/detection_engine/rule_management/urls';
 import { createRule, updateRule } from '../rule_management/api/api';
 import { transformInput, transformOutput } from './transforms';
@@ -120,25 +116,22 @@ export const createAiRuleCreationHandler = ({
       }
 
       aiRuleCreation.clearSaving();
+      aiRuleCreation.notifyRuleSaved(saved);
 
       const convId = activeConversationId;
       if (convId) {
-        // Persist ruleId + intent:'update' into the attachment so they survive subsequent
-        // agent edits and the button label never flips back to "Save rule".
-        agentBuilder
-          ?.updateAttachment(convId, SECURITY_RULE_ATTACHMENT_ID, {
-            data: { ruleId: saved.id, intent: 'update' },
-          })
-          .catch(() => {
-            // Non-fatal: the addAttachment call below keeps the UI consistent locally.
-          });
         if (!isUpdate) {
-          agentBuilder
-            ?.updateAttachmentOrigin(convId, SECURITY_RULE_ATTACHMENT_ID, saved.id)
-            .catch(() => {
-              // Non-fatal.
-            });
+          agentBuilder?.updateAttachmentOrigin(convId, SECURITY_RULE_ATTACHMENT_ID, saved.id);
         }
+        agentBuilder?.updateAttachment(convId, SECURITY_RULE_ATTACHMENT_ID, {
+          data: {
+            text: JSON.stringify(saved),
+            attachmentLabel: saved.name,
+            ruleId: saved.id,
+            intent: 'update',
+            originalText: JSON.stringify(saved),
+          },
+        });
       }
 
       securitySolutionQueryClient.invalidateQueries(['POST', RULE_MANAGEMENT_RULES_URL_SEARCH], {
@@ -157,18 +150,6 @@ export const createAiRuleCreationHandler = ({
           exact: false,
         });
       }
-
-      agentBuilder?.addAttachment({
-        id: SECURITY_RULE_ATTACHMENT_ID,
-        type: SecurityAgentBuilderAttachments.rule,
-        description: saved.name,
-        data: {
-          text: JSON.stringify(saved),
-          attachmentLabel: saved.name,
-          ruleId: saved.id,
-          intent: 'update',
-        },
-      });
     } catch (err) {
       aiRuleCreation.clearSaving();
       const message =

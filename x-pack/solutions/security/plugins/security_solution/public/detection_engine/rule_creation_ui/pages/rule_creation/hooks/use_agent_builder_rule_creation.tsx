@@ -189,7 +189,8 @@ export const useAgentBuilderRuleCreation = ({
         return;
       }
       const intent = intentRef.current;
-      // ruleId is a sibling of `text` (not embedded in the rule JSON) — survives shallow merges.
+      // The saved-rule id lives in the attachment's top-level `origin` (the source of truth for the
+      // "Update" button); include it on the push so syncing form edits never drops the link.
       const ruleId = intent === 'update' ? savedRuleId ?? getRuleIdForSync() : undefined;
       const targetId = aiRuleCreation.getBoundAttachmentId() ?? SECURITY_RULE_ATTACHMENT_ID;
       const attachment: AttachmentInput = {
@@ -197,10 +198,10 @@ export const useAgentBuilderRuleCreation = ({
         type: SecurityAgentBuilderAttachments.rule,
         // Guard against empty string — server treats "" as valid and would overwrite a prior label.
         ...(label ? { description: label } : {}),
+        ...(ruleId ? { origin: ruleId } : {}),
         data: {
           text: JSON.stringify(ruleData),
           attachmentLabel: label,
-          ...(ruleId ? { ruleId } : {}),
         },
       };
       agentBuilder.addAttachment(attachment);

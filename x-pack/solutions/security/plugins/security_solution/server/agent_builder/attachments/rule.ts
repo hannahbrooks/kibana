@@ -25,9 +25,6 @@ import { securityAttachmentDataSchema } from './security_attachment_data_schema'
 export const ruleAttachmentDataSchema = securityAttachmentDataSchema.extend({
   text: z.string().max(500_000),
   attachmentLabel: z.string().max(1_000).optional(),
-  // Save signal: `null` while unsaved (create), the saved id once saved (update). Nullable so the
-  // tool can emit an explicit `null` for a not-yet-saved rule rather than omitting the field.
-  ruleId: z.string().max(500).nullable().optional(),
 });
 
 const DETECTION_RULE_SKILL_NAME_ID = 'detection-rule-edit';

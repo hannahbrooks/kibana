@@ -29,11 +29,6 @@ export type RuleAttachment = Attachment<
   {
     text: string;
     attachmentLabel?: string;
-    /**
-     * Save signal that drives the button label: `null` (or absent) means the rule isn't saved yet
-     * ('create'); a saved id means it's saved ('update'). Emitted explicitly per version.
-     */
-    ruleId?: string | null;
   }
 >;
 
@@ -88,24 +83,19 @@ export const shouldShowViewRuleButton = (
 };
 
 /**
- * Saved-rule id from the attachment. `origin` (the saved object id, set after save and persisted
- * server-side) is the source of truth; `data.ruleId` is a transitional fallback for entry points
- * not yet migrated to `origin` and is removed once they are.
+ * Saved-rule id from the attachment. Lives in the attachment's top-level `origin` (set after save
+ * and persisted server-side), the single source of truth — used for navigation and the save target.
  */
 export const getRuleIdFromAttachment = (attachment: RuleAttachment): string | undefined =>
-  attachment.origin ?? attachment.data?.ruleId ?? undefined;
+  attachment.origin ?? undefined;
 
 /**
- * Effective intent for the button. Driven by `origin`: a saved rule is linked via `origin`
- * (set after save, persisted, and durable across reloads), so origin present means 'update'.
- * `data.ruleId` is a transitional fallback (removed once all writers move to `origin`).
+ * Effective intent for the button. Driven entirely by `origin`: a saved rule is linked via
+ * `origin` (set after save, persisted, durable across reloads), so origin present means 'update';
+ * absent means 'create'.
  */
-export const getRuleAttachmentIntent = (attachment: RuleAttachment): RuleAttachmentIntent => {
-  if (attachment.origin || attachment.data?.ruleId) {
-    return 'update';
-  }
-  return 'create';
-};
+export const getRuleAttachmentIntent = (attachment: RuleAttachment): RuleAttachmentIntent =>
+  attachment.origin ? 'update' : 'create';
 
 export const parseRuleFromAttachment = (attachment: RuleAttachment): RuleResponse | null => {
   const text = attachment?.data?.text;

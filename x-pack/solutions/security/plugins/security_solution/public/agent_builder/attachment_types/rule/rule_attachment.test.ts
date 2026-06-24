@@ -180,18 +180,6 @@ describe('createRuleAttachmentDefinition', () => {
       expect(primaryLabel(buildButtons({ text: JSON.stringify(validRule) }))).toBe('Create rule');
     });
 
-    it('labels a saved attachment "Update rule" when data.ruleId is set', () => {
-      expect(
-        primaryLabel(buildButtons({ text: JSON.stringify(validRule), ruleId: 'rule-1' }))
-      ).toBe('Update rule');
-    });
-
-    it('labels an attachment with an explicit null ruleId "Create rule"', () => {
-      expect(primaryLabel(buildButtons({ text: JSON.stringify(validRule), ruleId: null }))).toBe(
-        'Create rule'
-      );
-    });
-
     it('labels an attachment with `origin` set "Update rule"', () => {
       // `origin` is the persisted, reload-safe link to the saved rule and is the source of truth
       // for the button: once a card is linked to a saved rule it is an update target.

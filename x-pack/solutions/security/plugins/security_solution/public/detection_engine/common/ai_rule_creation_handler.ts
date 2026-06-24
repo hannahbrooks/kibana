@@ -80,19 +80,12 @@ export const createAiRuleCreationHandler = ({
   telemetry: TelemetryServiceStart;
 }): Subscription => {
   let activeConversationId: string | undefined;
-  let activeAttachments: Array<{ id: string; type: string }> = [];
   const conversationIdSub = agentBuilder?.events.ui.activeConversation$.subscribe((change) => {
-    const nextId = change?.id;
-    // Ignore transient null/undefined (sidebar briefly unbinding) — only clear on a real switch.
-    if (nextId !== undefined && nextId !== activeConversationId) {
-      aiRuleCreation.clearSavedCreateVersions();
-    }
-    activeAttachments = (change?.conversation?.attachments ?? []) as typeof activeAttachments;
-    activeConversationId = nextId;
+    activeConversationId = change?.id;
   });
 
   const saveSub = aiRuleCreation.saveRuleRequest$.subscribe(
-    async ({ rule, attachmentId, createCardVersion, updateOrigin }) => {
+    async ({ rule, attachmentId, updateOrigin }) => {
       const parseResult = EsqlRuleCreateProps.safeParse(rule);
       if (!parseResult.success) {
         const summary = parseResult.error.issues
@@ -144,13 +137,9 @@ export const createAiRuleCreationHandler = ({
         }
 
         aiRuleCreation.clearSaving();
-        // Deactivate so a post-save form edit can't clobber the attachment's ruleId before the
-        // next AI round reactivates sync.
+        // Deactivate so a post-save form edit can't clobber the attachment before the next AI
+        // round reactivates sync.
         aiRuleCreation.deactivateFormSync();
-
-        if (!isUpdate && createCardVersion !== undefined && attachmentId) {
-          aiRuleCreation.markCreateSaved(attachmentId, createCardVersion);
-        }
 
         const targetAttachmentId = attachmentId ?? SECURITY_RULE_ATTACHMENT_ID;
 
@@ -239,26 +228,6 @@ export const createAiRuleCreationHandler = ({
     }
   );
 
-  const clearOthersSub = aiRuleCreation.clearOtherAttachments$.subscribe((exceptId) => {
-    const convId = activeConversationId;
-    if (!convId || !agentBuilder) return;
-    for (const att of activeAttachments) {
-      if (att.id !== exceptId && att.type === SecurityAgentBuilderAttachments.rule) {
-        agentBuilder
-          .updateAttachment(convId, att.id, {
-            data: { text: '{}', ruleId: null, attachmentLabel: '' },
-          })
-          .catch(() => {});
-        agentBuilder.addAttachment({
-          id: att.id,
-          type: SecurityAgentBuilderAttachments.rule,
-          data: { text: '{}', ruleId: null },
-        });
-      }
-    }
-  });
-
   saveSub.add(conversationIdSub);
-  saveSub.add(clearOthersSub);
   return saveSub;
 };

@@ -27,16 +27,9 @@ import type { AiRuleCreationService } from '../../../detection_engine/common/ai_
 import { FiltersDisplay } from './filters_display';
 import { RuleTypeDetails } from './rule_type_details';
 import { ScheduleDisplay } from './schedule_display';
-import {
-  parseRuleFromAttachment,
-  getRuleTypeLabel,
-  getQueryLabel,
-  getRuleAttachmentIntent,
-} from './helpers';
+import { parseRuleFromAttachment, getRuleTypeLabel, getQueryLabel } from './helpers';
 import type { RuleAttachment } from './helpers';
 import { INDEX_FIELD_LABEL, RULE_TYPE_FIELD_LABEL } from './translations';
-
-const EMPTY_SAVED_VERSIONS: ReadonlySet<string> = new Set();
 
 const SectionHeading: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <EuiText size="s">
@@ -114,22 +107,8 @@ export const RuleInlineContent: React.FC<RuleInlineContentProps> = ({
   aiRuleCreation,
 }) => {
   const isSaving = useObservable(aiRuleCreation.saving$, false);
-  const savedCreateVersions = useObservable(
-    aiRuleCreation.savedCreateVersions$,
-    EMPTY_SAVED_VERSIONS
-  );
 
   const rule = useMemo(() => parseRuleFromAttachment(attachment), [attachment]);
-
-  const intent = getRuleAttachmentIntent(attachment);
-
-  // The label is frozen per version, so a saved rule's create card keeps saying "Create rule".
-  // Warn that clicking it again duplicates the rule. The guard is keyed on (attachmentId, version)
-  // so saving card A-v1 never triggers the warning on card B-v1.
-  const willDuplicateOnSave =
-    intent === 'create' &&
-    attachment.version !== undefined &&
-    savedCreateVersions.has(`${attachment.id}:${attachment.version}`);
 
   if (!rule) {
     return null;
@@ -284,32 +263,6 @@ export const RuleInlineContent: React.FC<RuleInlineContentProps> = ({
           })}
         </EuiText>
       </EuiCallOut>
-
-      {willDuplicateOnSave && (
-        <>
-          <EuiSpacer size="s" />
-          <EuiCallOut
-            announceOnMount
-            size="s"
-            color="warning"
-            iconType="copyClipboard"
-            title={i18n.translate(
-              'xpack.securitySolution.agentBuilder.ruleAttachment.alreadySavedTitle',
-              { defaultMessage: 'This rule has already been saved' }
-            )}
-          >
-            <EuiText size="xs">
-              {i18n.translate(
-                'xpack.securitySolution.agentBuilder.ruleAttachment.alreadySavedBody',
-                {
-                  defaultMessage:
-                    'Clicking "Create rule" again will save a separate, duplicate rule.',
-                }
-              )}
-            </EuiText>
-          </EuiCallOut>
-        </>
-      )}
     </EuiPanel>
   );
 };

@@ -33,8 +33,6 @@ interface BuildRuleActionButtonsParams {
   ruleId: string | undefined;
   /** The attachment card id — threaded into save requests and "Open in form" for per-card targeting. */
   attachmentId: string;
-  /** Version of the rendered create card, recorded on save to scope the duplicate-save warning. */
-  createCardVersion: number | undefined;
   /** Whether to show a "View rule" link — true when the rule is saved and not already being viewed. */
   showViewRule: boolean;
   /**
@@ -54,7 +52,6 @@ export const buildRuleActionButtons = ({
   intent,
   ruleId,
   attachmentId,
-  createCardVersion,
   showViewRule,
   updateOrigin,
 }: BuildRuleActionButtonsParams): ActionButton[] => {
@@ -77,7 +74,6 @@ export const buildRuleActionButtons = ({
       icon: 'pencil',
       type: ActionButtonType.SECONDARY,
       handler: () => {
-        aiRuleCreation.requestClearOtherAttachments(attachmentId);
         aiRuleCreation.setAiCreatedRule(rule, attachmentId);
         application.navigateToApp('securitySolutionUI', {
           path: isUpdate && ruleId ? `${RULES_PATH}${getEditRuleUrl(ruleId)}` : RULES_CREATE_PATH,
@@ -134,7 +130,6 @@ export const buildRuleActionButtons = ({
             }
             const { id: _id, ...ruleWithoutId } = rule as RuleResponse & { id?: string };
             aiRuleCreation.requestSaveRule(ruleWithoutId as RuleResponse, {
-              createCardVersion,
               attachmentId,
               updateOrigin,
             });

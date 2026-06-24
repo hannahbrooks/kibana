@@ -324,7 +324,6 @@ describe('buildRuleActionButtons', () => {
       intent: 'create',
       ruleId: undefined,
       attachmentId: 'air:testcard',
-      createCardVersion: undefined,
       showViewRule: false,
       updateOrigin: jest.fn().mockResolvedValue(undefined),
     };
@@ -370,11 +369,11 @@ describe('buildRuleActionButtons', () => {
   });
 
   it('requests a save with the attachmentId for a create-intent attachment', () => {
-    const buttons = buildRuleActionButtons({ ...baseProps, createCardVersion: 2 });
+    const buttons = buildRuleActionButtons({ ...baseProps });
     primaryButton(buttons)!.handler();
     expect(aiRuleCreation.requestSaveRule).toHaveBeenCalledWith(
       expect.not.objectContaining({ id: expect.anything() }),
-      expect.objectContaining({ attachmentId: 'air:testcard', createCardVersion: 2 })
+      expect.objectContaining({ attachmentId: 'air:testcard' })
     );
   });
 

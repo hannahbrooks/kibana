@@ -5,7 +5,7 @@
  * 2.0.
  */
 
-import { firstValueFrom, take, toArray } from 'rxjs';
+import { firstValueFrom } from 'rxjs';
 import type { RuleResponse } from '../../../common/api/detection_engine/model/rule_schema';
 import { AiRuleCreationService } from './ai_rule_creation_store';
 
@@ -28,46 +28,16 @@ describe('AiRuleCreationService', () => {
       expect(value).toEqual({
         rule: mockRule,
         attachmentId: undefined,
-        createCardVersion: undefined,
+        updateOrigin: undefined,
       });
     });
 
-    it('carries the create card version and attachmentId through requestSaveRule', async () => {
+    it('carries the attachmentId and updateOrigin through requestSaveRule', async () => {
       const promise = firstValueFrom(service.saveRuleRequest$);
-      service.requestSaveRule(mockRule, { createCardVersion: 3, attachmentId: ATT_A });
+      const updateOrigin = jest.fn();
+      service.requestSaveRule(mockRule, { attachmentId: ATT_A, updateOrigin });
       const value = await promise;
-      expect(value).toEqual({ rule: mockRule, attachmentId: ATT_A, createCardVersion: 3 });
-    });
-  });
-
-  describe('savedCreateVersions$', () => {
-    it('records saved create cards keyed by (attachmentId, version) and clears them', async () => {
-      const promise = firstValueFrom(service.savedCreateVersions$.pipe(take(4), toArray()));
-      service.markCreateSaved(ATT_A, 1);
-      service.markCreateSaved(ATT_A, 3);
-      service.clearSavedCreateVersions();
-      const emissions = await promise;
-      expect(emissions.map((s) => [...s])).toEqual([
-        [],
-        [`${ATT_A}:1`],
-        [`${ATT_A}:1`, `${ATT_A}:3`],
-        [],
-      ]);
-    });
-
-    it('saving card A-v1 does not affect card B-v1 (no cross-card collision)', async () => {
-      service.markCreateSaved(ATT_A, 1);
-      const versions = await firstValueFrom(service.savedCreateVersions$);
-      expect(versions.has(`${ATT_A}:1`)).toBe(true);
-      expect(versions.has(`${ATT_B}:1`)).toBe(false);
-    });
-
-    it('reset clears recorded saved create cards', () => {
-      service.markCreateSaved(ATT_A, 2);
-      service.reset();
-      service.savedCreateVersions$.subscribe((versions) => {
-        expect(versions.size).toBe(0);
-      });
+      expect(value).toEqual({ rule: mockRule, attachmentId: ATT_A, updateOrigin });
     });
   });
 

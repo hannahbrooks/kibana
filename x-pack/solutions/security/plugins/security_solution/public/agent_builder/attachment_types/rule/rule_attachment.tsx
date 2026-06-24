@@ -77,7 +77,6 @@ export const createRuleAttachmentDefinition = ({
       intent,
       ruleId,
       attachmentId: attachment.id,
-      createCardVersion: attachment.version,
       updateOrigin,
       showViewRule:
         intent === 'update' && shouldShowViewRuleButton(ruleId, window.location.pathname),

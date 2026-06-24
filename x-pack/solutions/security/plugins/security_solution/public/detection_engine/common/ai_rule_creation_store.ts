@@ -25,29 +25,23 @@ export type UpdateAttachmentOriginFn = (origin: string) => Promise<unknown>;
 export interface SaveRuleRequest {
   rule: RuleResponse;
   attachmentId?: string;
-  createCardVersion?: number;
   updateOrigin?: UpdateAttachmentOriginFn;
 }
 
 export class AiRuleCreationService {
   private readonly saveRuleSubject = new Subject<SaveRuleRequest>();
-  private readonly clearOtherAttachmentsSubject = new Subject<string>();
   private readonly savingSubject = new BehaviorSubject<boolean>(false);
   private readonly aiRuleSubject = new BehaviorSubject<RuleResponse | null>(null);
   private readonly formSyncSubject = new BehaviorSubject<boolean>(false);
-  // Keyed `"${attachmentId}:${version}"` so saving card A-v1 can't trigger the warning on card B-v1.
-  private readonly savedCreateVersionsSubject = new BehaviorSubject<ReadonlySet<string>>(new Set());
   // `null` = form idle (no active bind). Released when a brand-new rule card is minted.
   // Plain field, not a subject: every consumer reads it imperatively via `getBoundAttachmentId`.
   private boundAttachmentId: string | null = null;
   private session: AiRuleCreationSession | null = null;
 
   public readonly saveRuleRequest$ = this.saveRuleSubject.asObservable();
-  public readonly clearOtherAttachments$ = this.clearOtherAttachmentsSubject.asObservable();
   public readonly saving$ = this.savingSubject.pipe(distinctUntilChanged());
   public readonly aiCreatedRule$ = this.aiRuleSubject.asObservable();
   public readonly formSyncActive$ = this.formSyncSubject.pipe(distinctUntilChanged());
-  public readonly savedCreateVersions$ = this.savedCreateVersionsSubject.asObservable();
 
   public startSession = (): AiRuleCreationSession => {
     this.session = {
@@ -68,14 +62,9 @@ export class AiRuleCreationService {
     }
   };
 
-  public requestClearOtherAttachments = (exceptAttachmentId: string): void => {
-    this.clearOtherAttachmentsSubject.next(exceptAttachmentId);
-  };
-
   public requestSaveRule = (
     rule: RuleResponse,
     options?: {
-      createCardVersion?: number;
       attachmentId?: string;
       updateOrigin?: UpdateAttachmentOriginFn;
     }
@@ -84,22 +73,8 @@ export class AiRuleCreationService {
     this.saveRuleSubject.next({
       rule,
       attachmentId: options?.attachmentId,
-      createCardVersion: options?.createCardVersion,
       updateOrigin: options?.updateOrigin,
     });
-  };
-
-  public markCreateSaved = (attachmentId: string, version: number): void => {
-    const key = `${attachmentId}:${version}`;
-    const next = new Set(this.savedCreateVersionsSubject.getValue());
-    next.add(key);
-    this.savedCreateVersionsSubject.next(next);
-  };
-
-  public clearSavedCreateVersions = (): void => {
-    if (this.savedCreateVersionsSubject.getValue().size > 0) {
-      this.savedCreateVersionsSubject.next(new Set());
-    }
   };
 
   public clearSaving = (): void => {
@@ -149,7 +124,6 @@ export class AiRuleCreationService {
     this.savingSubject.next(false);
     this.aiRuleSubject.next(null);
     this.formSyncSubject.next(false);
-    this.savedCreateVersionsSubject.next(new Set());
     this.boundAttachmentId = null;
     this.session = null;
   };

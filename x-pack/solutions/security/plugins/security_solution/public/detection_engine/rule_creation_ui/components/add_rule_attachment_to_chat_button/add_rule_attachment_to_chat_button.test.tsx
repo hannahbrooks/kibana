@@ -86,13 +86,15 @@ describe('AddRuleAttachmentToChatButton', () => {
     (useKibana as jest.Mock).mockReturnValue(mockKibanaServices());
   });
 
-  it('captures attachment call with expected params', () => {
+  it('attaches a saved rule by reference (origin) so the server resolves it', () => {
     render(<AddRuleAttachmentToChatButton rule={ruleResponseMock} pathway="rule_details" />);
 
     const attachment = getCapturedAttachment();
     expect(attachment.attachmentType).toBe(SecurityAgentBuilderAttachments.rule);
-    expect(attachment.attachmentData.text).toBe(JSON.stringify(ruleResponseMock));
-    expect(attachment.attachmentData.attachmentLabel).toBe('My Rule');
+    // A saved RuleResponse from rule-details is attached by reference: `origin` is the rule id and
+    // no by-value `data` is sent — the server `resolve`s the current rule from `origin`.
+    expect(attachment.origin).toBe(ruleResponseMock.id);
+    expect(attachment.attachmentData).toBeUndefined();
     expect(attachment.attachmentDescription).toBe('My Rule');
     const newAttachmentProps = mockNewAgentBuilderAttachment.mock.calls[0][0];
     expect(newAttachmentProps.telemetry?.pathway).toBe('rule_details');

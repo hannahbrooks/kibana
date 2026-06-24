@@ -106,17 +106,30 @@ export const AddRuleAttachmentToChatButton: React.FC<AddRuleAttachmentToChatButt
             { defaultMessage: 'New Rule' }
           )
         : undefined);
-    const attachmentData = JSON.stringify(formattedRule);
     const linkedRuleId = rule?.id ?? existingRuleId;
 
+    // Rule-details / flyout pathway (a saved RuleResponse, no live form): attach by reference so
+    // the server `resolve`s the current rule. `origin` set ⇒ the chat card reads "Update".
+    if (!isFormBased && linkedRuleId) {
+      return {
+        attachmentId: SECURITY_RULE_ATTACHMENT_ID,
+        attachmentType: SecurityAgentBuilderAttachments.rule,
+        origin: linkedRuleId,
+        attachmentDescription: attachmentLabel,
+      };
+    }
+
+    // Form pathway: attach the on-screen rule by value so unsaved form edits are reflected and
+    // form sync keeps pushing into the same card. When editing a saved rule, also set `origin`
+    // (the saved id) so the card reads "Update"; a brand-new rule has no origin ⇒ "Create".
     return {
       attachmentId: SECURITY_RULE_ATTACHMENT_ID,
       attachmentType: SecurityAgentBuilderAttachments.rule,
       attachmentData: {
-        text: attachmentData,
+        text: JSON.stringify(formattedRule),
         attachmentLabel,
-        ...(linkedRuleId ? { ruleId: linkedRuleId } : {}),
       },
+      ...(linkedRuleId ? { origin: linkedRuleId } : {}),
       attachmentDescription: attachmentLabel,
     };
   }, [

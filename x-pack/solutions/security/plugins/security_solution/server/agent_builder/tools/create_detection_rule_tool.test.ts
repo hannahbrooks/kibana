@@ -251,7 +251,7 @@ describe('createDetectionRuleTool', () => {
         expect(context.attachments.update).toHaveBeenCalledWith(
           SECURITY_RULE_ATTACHMENT_ID,
           expect.objectContaining({
-            data: expect.objectContaining({ ruleId: null }),
+            data: expect.not.objectContaining({ ruleId: expect.anything() }),
           })
         );
         expect(result).toEqual({
@@ -270,7 +270,7 @@ describe('createDetectionRuleTool', () => {
         });
       });
 
-      it('does not inherit a previously saved ruleId from the seed', async () => {
+      it('never writes ruleId into the card (identity lives in origin)', async () => {
         const context = createToolHandlerContext(mockRequest, mockEsClient, mockLogger, {
           modelProvider: mockModelProvider,
           events: mockEvents,
@@ -297,7 +297,7 @@ describe('createDetectionRuleTool', () => {
         expect(context.attachments.update).toHaveBeenCalledWith(
           SECURITY_RULE_ATTACHMENT_ID,
           expect.objectContaining({
-            data: expect.objectContaining({ ruleId: null }),
+            data: expect.not.objectContaining({ ruleId: expect.anything() }),
           })
         );
       });
@@ -324,7 +324,7 @@ describe('createDetectionRuleTool', () => {
         expect(context.attachments.update).not.toHaveBeenCalled();
         expect(context.attachments.add).toHaveBeenCalledWith(
           expect.objectContaining({
-            data: expect.objectContaining({ ruleId: null }),
+            data: expect.not.objectContaining({ ruleId: expect.anything() }),
           })
         );
 
@@ -463,7 +463,7 @@ describe('createDetectionRuleTool', () => {
         expect(context.attachments.update).toHaveBeenCalledWith(
           existingAttachmentId,
           expect.objectContaining({
-            data: expect.objectContaining({ ruleId: null }),
+            data: expect.not.objectContaining({ ruleId: expect.anything() }),
           })
         );
 
@@ -512,7 +512,9 @@ describe('createDetectionRuleTool', () => {
         });
       });
 
-      it('carries forward a saved ruleId when rewriting a query on an already-saved rule', async () => {
+      it('does not write ruleId when rewriting a saved rule (origin carries identity)', async () => {
+        // Identity lives in the attachment's top-level `origin`, which persists across update() on
+        // the same id — so the tool no longer re-emits a per-version ruleId to stay "Update".
         const existingAttachmentId = 'air:savedcard';
         const context = createToolHandlerContext(mockRequest, mockEsClient, mockLogger, {
           modelProvider: mockModelProvider,
@@ -539,7 +541,7 @@ describe('createDetectionRuleTool', () => {
         expect(context.attachments.update).toHaveBeenCalledWith(
           existingAttachmentId,
           expect.objectContaining({
-            data: expect.objectContaining({ ruleId: 'saved-rule-id' }),
+            data: expect.not.objectContaining({ ruleId: expect.anything() }),
           })
         );
       });

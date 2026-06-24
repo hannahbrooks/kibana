@@ -37,6 +37,12 @@ interface BuildRuleActionButtonsParams {
   createCardVersion: number | undefined;
   /** Whether to show a "View rule" link — true when the rule is saved and not already being viewed. */
   showViewRule: boolean;
+  /**
+   * Framework callback that links the attachment to its saved rule via `origin` and invalidates
+   * the conversation so the card reflects the saved state in-session. Threaded into the save
+   * request and called once the rule is persisted.
+   */
+  updateOrigin: (origin: string) => Promise<unknown>;
 }
 
 /** Builds action buttons for a rule attachment. Called from `getActionButtons` (not a hook). */
@@ -50,6 +56,7 @@ export const buildRuleActionButtons = ({
   attachmentId,
   createCardVersion,
   showViewRule,
+  updateOrigin,
 }: BuildRuleActionButtonsParams): ActionButton[] => {
   const canEditRules = hasCapabilities(application.capabilities, RULES_UI_EDIT_PRIVILEGE);
   if (!rule || !canEditRules || (rule.type === 'esql' && !uiSettings.get(ENABLE_ESQL))) {
@@ -107,7 +114,10 @@ export const buildRuleActionButtons = ({
             if (aiRuleCreation.getIsSaving()) {
               return;
             }
-            aiRuleCreation.requestSaveRule({ ...rule, id: ruleId ?? rule.id }, { attachmentId });
+            aiRuleCreation.requestSaveRule(
+              { ...rule, id: ruleId ?? rule.id },
+              { attachmentId, updateOrigin }
+            );
           },
         }
       : {
@@ -126,6 +136,7 @@ export const buildRuleActionButtons = ({
             aiRuleCreation.requestSaveRule(ruleWithoutId as RuleResponse, {
               createCardVersion,
               attachmentId,
+              updateOrigin,
             });
           },
         },

@@ -66,7 +66,7 @@ export const createRuleAttachmentDefinition = ({
     }),
   getIcon: () => 'securityApp',
   renderInlineContent: (props) => <RuleInlineContent {...props} aiRuleCreation={aiRuleCreation} />,
-  getActionButtons: ({ attachment }) => {
+  getActionButtons: ({ attachment, updateOrigin }) => {
     const intent = getRuleAttachmentIntent(attachment);
     const ruleId = getRuleIdFromAttachment(attachment) ?? undefined;
     return buildRuleActionButtons({
@@ -78,6 +78,7 @@ export const createRuleAttachmentDefinition = ({
       ruleId,
       attachmentId: attachment.id,
       createCardVersion: attachment.version,
+      updateOrigin,
       showViewRule:
         intent === 'update' && shouldShowViewRuleButton(ruleId, window.location.pathname),
     });

@@ -192,12 +192,12 @@ describe('createRuleAttachmentDefinition', () => {
       );
     });
 
-    it('shows "Create rule" for legacy attachments that have origin but no data.ruleId', () => {
-      // origin is a server-side linkage from a prior session; it must NOT flip the button to
-      // "Update rule" when the user is asking to create a fresh rule.
+    it('labels an attachment with `origin` set "Update rule"', () => {
+      // `origin` is the persisted, reload-safe link to the saved rule and is the source of truth
+      // for the button: once a card is linked to a saved rule it is an update target.
       expect(
         primaryLabel(buildButtons({ text: JSON.stringify(validRule) }, { origin: 'rule-1' }))
-      ).toBe('Create rule');
+      ).toBe('Update rule');
     });
 
     it('returns no buttons when the user cannot edit rules', () => {
@@ -326,6 +326,7 @@ describe('buildRuleActionButtons', () => {
       attachmentId: 'air:testcard',
       createCardVersion: undefined,
       showViewRule: false,
+      updateOrigin: jest.fn().mockResolvedValue(undefined),
     };
   });
 

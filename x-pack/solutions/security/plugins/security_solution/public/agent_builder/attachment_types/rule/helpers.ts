@@ -88,19 +88,20 @@ export const shouldShowViewRuleButton = (
 };
 
 /**
- * Saved-rule id from the attachment. `data.ruleId` is primary; `origin` is a legacy fallback
- * used only when resolving the rule id for navigation/save targets — NOT for intent detection.
+ * Saved-rule id from the attachment. `origin` (the saved object id, set after save and persisted
+ * server-side) is the source of truth; `data.ruleId` is a transitional fallback for entry points
+ * not yet migrated to `origin` and is removed once they are.
  */
 export const getRuleIdFromAttachment = (attachment: RuleAttachment): string | undefined =>
-  attachment.data?.ruleId ?? (attachment as { origin?: string }).origin ?? undefined;
+  attachment.origin ?? attachment.data?.ruleId ?? undefined;
 
 /**
- * Effective intent for the button. Driven entirely by `data.ruleId`: a saved id means 'update',
- * `null`/absent means 'create'. The id is emitted explicitly per version and carried forward once
- * the rule is saved, so the latest attachment always reflects the correct per-card label.
+ * Effective intent for the button. Driven by `origin`: a saved rule is linked via `origin`
+ * (set after save, persisted, and durable across reloads), so origin present means 'update'.
+ * `data.ruleId` is a transitional fallback (removed once all writers move to `origin`).
  */
 export const getRuleAttachmentIntent = (attachment: RuleAttachment): RuleAttachmentIntent => {
-  if (attachment.data?.ruleId) {
+  if (attachment.origin || attachment.data?.ruleId) {
     return 'update';
   }
   return 'create';

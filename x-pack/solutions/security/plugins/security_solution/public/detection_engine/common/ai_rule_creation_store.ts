@@ -15,10 +15,18 @@ export interface AiRuleCreationSession {
   applyCount: number;
 }
 
+/**
+ * Links the attachment to its saved rule via `origin` and invalidates the conversation so the
+ * card reflects the saved state in-session. Supplied by the inline attachment's framework
+ * callback; the save handler calls it once the rule is persisted.
+ */
+export type UpdateAttachmentOriginFn = (origin: string) => Promise<unknown>;
+
 export interface SaveRuleRequest {
   rule: RuleResponse;
   attachmentId?: string;
   createCardVersion?: number;
+  updateOrigin?: UpdateAttachmentOriginFn;
 }
 
 export class AiRuleCreationService {
@@ -66,13 +74,18 @@ export class AiRuleCreationService {
 
   public requestSaveRule = (
     rule: RuleResponse,
-    options?: { createCardVersion?: number; attachmentId?: string }
+    options?: {
+      createCardVersion?: number;
+      attachmentId?: string;
+      updateOrigin?: UpdateAttachmentOriginFn;
+    }
   ): void => {
     this.savingSubject.next(true);
     this.saveRuleSubject.next({
       rule,
       attachmentId: options?.attachmentId,
       createCardVersion: options?.createCardVersion,
+      updateOrigin: options?.updateOrigin,
     });
   };
 

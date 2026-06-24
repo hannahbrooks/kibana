@@ -92,7 +92,7 @@ export const createAiRuleCreationHandler = ({
   });
 
   const saveSub = aiRuleCreation.saveRuleRequest$.subscribe(
-    async ({ rule, attachmentId, createCardVersion }) => {
+    async ({ rule, attachmentId, createCardVersion, updateOrigin }) => {
       const parseResult = EsqlRuleCreateProps.safeParse(rule);
       if (!parseResult.success) {
         const summary = parseResult.error.issues
@@ -161,7 +161,6 @@ export const createAiRuleCreationHandler = ({
               data: {
                 text: JSON.stringify(stripServerFields(saved)),
                 attachmentLabel: saved.name,
-                ruleId: saved.id,
               },
             })
             .catch(() => {
@@ -181,11 +180,6 @@ export const createAiRuleCreationHandler = ({
                 ),
               });
             });
-          if (!isUpdate) {
-            agentBuilder?.updateAttachmentOrigin(convId, targetAttachmentId, saved.id).catch(() => {
-              // Non-fatal: origin is a secondary link used for navigation, not the button state.
-            });
-          }
         }
 
         securitySolutionQueryClient.invalidateQueries(['POST', RULE_MANAGEMENT_RULES_URL_SEARCH], {
@@ -212,9 +206,21 @@ export const createAiRuleCreationHandler = ({
           data: {
             text: JSON.stringify(stripServerFields(saved)),
             attachmentLabel: saved.name,
-            ruleId: saved.id,
           },
         });
+
+        // Link the freshly-created card to its saved rule via `origin`, and do it LAST: the
+        // framework `updateOrigin` callback persists the origin AND invalidates the conversation,
+        // re-fetching server state. Running it after `addAttachment` (which pushes an origin-less
+        // client record) ensures the invalidate is authoritative, so the card durably flips to
+        // "Update" in-session. `origin` is the reload-safe source of truth for the button.
+        if (convId && !isUpdate && updateOrigin) {
+          try {
+            await updateOrigin(saved.id);
+          } catch {
+            // Non-fatal: the rule is saved; a manual refresh will reconcile the card state.
+          }
+        }
       } catch (err) {
         aiRuleCreation.clearSaving();
         const message =

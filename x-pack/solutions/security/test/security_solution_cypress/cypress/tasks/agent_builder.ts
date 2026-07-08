@@ -23,6 +23,14 @@ export const assertAgentBuilderConversationInputEditorContains = (expectedText: 
   cy.get(AGENT_BUILDER_CONVERSATION_INPUT_EDITOR).should('contain', expectedText);
 };
 
+export const assertAgentBuilderConversationInputEditorIsEmpty = () => {
+  cy.get(AGENT_BUILDER_CONVERSATION_INPUT_EDITOR).should('have.text', '');
+};
+
+export const assertNewAgentBuilderAttachmentButtonIsDisabled = () => {
+  cy.get(NEW_AGENT_BUILDER_ATTACHMENT_BUTTON).should('be.visible').and('be.disabled');
+};
+
 export const openCreateRuleMenu = () => {
   cy.get(CREATE_RULE_BUTTON).should('be.visible').click();
   cy.get(CREATE_RULE_CONTEXT_MENU_POPOVER).should('be.visible');

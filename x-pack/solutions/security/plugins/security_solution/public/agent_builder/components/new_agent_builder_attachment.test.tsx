@@ -5,7 +5,7 @@
  * 2.0.
  */
 
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import React from 'react';
 import { TestProviders } from '../../common/mock';
 import { NewAgentBuilderAttachment } from './new_agent_builder_attachment';
@@ -98,5 +98,50 @@ describe('NewAgentBuilderAttachment', () => {
     );
 
     expect(screen.getByTestId('newAgentBuilderAttachment')).toBeDisabled();
+  });
+
+  it('renders disabled with the provided tooltip when disabled for a non-license reason', async () => {
+    render(
+      <TestProviders>
+        <NewAgentBuilderAttachment
+          {...defaultProps}
+          disabled
+          disabledTooltip="AI rule creation is only supported for ES|QL rules."
+        />
+      </TestProviders>
+    );
+
+    expect(screen.getByTestId('newAgentBuilderAttachment')).toBeDisabled();
+    fireEvent.mouseOver(screen.getByTestId('newAgentBuilderAttachment'));
+    expect(
+      await screen.findByText('AI rule creation is only supported for ES|QL rules.')
+    ).toBeInTheDocument();
+  });
+
+  it('prefers the license tooltip over disabledTooltip when the license is invalid', async () => {
+    (useAgentBuilderAvailability as jest.Mock).mockReturnValue({
+      isAgentBuilderEnabled: false,
+      hasAgentBuilderPrivilege: true,
+      isAgentChatExperienceEnabled: true,
+      hasValidAgentBuilderLicense: false,
+    });
+
+    render(
+      <TestProviders>
+        <NewAgentBuilderAttachment
+          {...defaultProps}
+          disabled
+          disabledTooltip="AI rule creation is only supported for ES|QL rules."
+        />
+      </TestProviders>
+    );
+
+    fireEvent.mouseOver(screen.getByTestId('newAgentBuilderAttachment'));
+    expect(
+      await screen.findByText(i18n.UPGRADE_TO_ENTERPRISE_TO_USE_AGENT_BUILDER_CHAT)
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText('AI rule creation is only supported for ES|QL rules.')
+    ).not.toBeInTheDocument();
   });
 });

@@ -20,9 +20,11 @@ import {
   SecurityAgentBuilderAttachments,
   SECURITY_RULE_ATTACHMENT_ID,
 } from '../../../../../common/constants';
+import { isEsqlRule } from '../../../../../common/detection_engine/utils';
 import { NewAgentBuilderAttachment } from '../../../../agent_builder/components/new_agent_builder_attachment';
-import { RULE_EXPLORATION_ATTACHMENT_PROMPT } from '../../../../agent_builder/components/prompts';
 import type { AgentBuilderAddToChatTelemetry } from '../../../../agent_builder/hooks/use_report_add_to_chat';
+import { getRuleTypeLabel } from '../../../../agent_builder/attachment_types/rule/helpers';
+import { getNonEsqlRuleActionDisabledReason } from '../../../../agent_builder/attachment_types/rule/translations';
 import { formatRule } from '../../pages/rule_creation/helpers';
 import { NEW_RULE_ATTACHMENT_LABEL } from '../../pages/rule_creation/translations';
 import { stripServerFields } from '../../../common/ai_rule_creation_handler';
@@ -80,6 +82,12 @@ export const AddRuleAttachmentToChatButton: React.FC<AddRuleAttachmentToChatButt
     actionsStepData != null &&
     actionTypeRegistry != null;
 
+  const ruleType = isFormBased ? defineStepData.ruleType : rule?.type;
+  const isEsql = isEsqlRule(ruleType);
+  const disabledTooltip = !isEsql
+    ? getNonEsqlRuleActionDisabledReason(getRuleTypeLabel(ruleType ?? ''))
+    : undefined;
+
   const ruleAttachment = useMemo(() => {
     let formattedRule: RuleCreateProps | Partial<RuleResponse> | null | undefined;
     if (isFormBased) {
@@ -107,7 +115,6 @@ export const AddRuleAttachmentToChatButton: React.FC<AddRuleAttachmentToChatButt
       },
       ...(linkedRuleId ? { origin: linkedRuleId } : {}),
       attachmentDescription: attachmentLabel,
-      attachmentPrompt: RULE_EXPLORATION_ATTACHMENT_PROMPT,
     };
   }, [
     isFormBased,
@@ -133,6 +140,8 @@ export const AddRuleAttachmentToChatButton: React.FC<AddRuleAttachmentToChatButt
   return (
     <NewAgentBuilderAttachment
       onClick={handleClick}
+      disabled={!isEsql}
+      disabledTooltip={disabledTooltip}
       telemetry={{
         pathway,
         attachments: ['rule'],

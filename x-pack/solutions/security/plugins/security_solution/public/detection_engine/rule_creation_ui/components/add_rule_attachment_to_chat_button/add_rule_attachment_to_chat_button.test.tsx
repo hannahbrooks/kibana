@@ -24,7 +24,8 @@ import type {
 } from '../../../common/types';
 import type { RuleResponse } from '../../../../../common/api/detection_engine';
 import { useKibana } from '../../../../common/lib/kibana';
-import { RULE_EXPLORATION_ATTACHMENT_PROMPT } from '../../../../agent_builder/components/prompts';
+import { getRuleTypeLabel } from '../../../../agent_builder/attachment_types/rule/helpers';
+import { getNonEsqlRuleActionDisabledReason } from '../../../../agent_builder/attachment_types/rule/translations';
 
 const mockOpenAgentBuilderFlyout = jest.fn();
 const mockUseAgentBuilderAttachment = jest.fn();
@@ -49,8 +50,9 @@ const ruleResponseMock = {
   updated_at: '2020-01-02T00:00:00.000Z',
   updated_by: 'elastic',
   name: 'My Rule',
+  type: 'esql',
 } as RuleResponse;
-const defineStepDataMock = {} as DefineStepRule;
+const defineStepDataMock = { ruleType: 'esql' } as DefineStepRule;
 const aboutStepDataMock = {} as AboutStepRule;
 const scheduleStepDataMock = {} as ScheduleStepRule;
 const actionsStepDataMock = {} as ActionsStepRule;
@@ -105,7 +107,7 @@ describe('AddRuleAttachmentToChatButton', () => {
     expect(attachment.origin).toBe(ruleResponseMock.id);
     // data included → card renders immediately without waiting for server resolve, but
     // server-assigned fields are stripped so identity flows only via `origin`
-    expect(attachment.attachmentData?.text).toBe(JSON.stringify({ name: 'My Rule' }));
+    expect(attachment.attachmentData?.text).toBe(JSON.stringify({ name: 'My Rule', type: 'esql' }));
     const serializedText = attachment.attachmentData?.text ?? '';
     expect(serializedText).not.toContain('rule-123');
     expect(serializedText).not.toContain('rule_id');
@@ -143,7 +145,6 @@ describe('AddRuleAttachmentToChatButton', () => {
         attachmentLabel: 'Formatted Rule',
       },
       attachmentDescription: 'Formatted Rule',
-      attachmentPrompt: RULE_EXPLORATION_ATTACHMENT_PROMPT,
     });
 
     await user.click(screen.getByTestId('newAgentBuilderAttachmentMock'));
@@ -170,5 +171,49 @@ describe('AddRuleAttachmentToChatButton', () => {
     expect(attachment.origin).toBe('rule-123');
     expect(attachment.attachmentData?.text).toBe(JSON.stringify({ name: 'Formatted Rule' }));
     expect(attachment.attachmentData?.text).not.toContain('rule-123');
+  });
+
+  it('enables the button for an ES|QL rule response with no disabled tooltip', () => {
+    render(<AddRuleAttachmentToChatButton rule={ruleResponseMock} pathway="rule_details" />);
+
+    const newAttachmentProps = mockNewAgentBuilderAttachment.mock.calls[0][0];
+    expect(newAttachmentProps.disabled).toBe(false);
+    expect(newAttachmentProps.disabledTooltip).toBeUndefined();
+  });
+
+  it('disables the button with a tooltip for a non-ES|QL rule response', () => {
+    render(
+      <AddRuleAttachmentToChatButton
+        rule={{ ...ruleResponseMock, type: 'query' } as RuleResponse}
+        pathway="rule_details"
+      />
+    );
+
+    const newAttachmentProps = mockNewAgentBuilderAttachment.mock.calls[0][0];
+    expect(newAttachmentProps.disabled).toBe(true);
+    expect(newAttachmentProps.disabledTooltip).toBe(
+      getNonEsqlRuleActionDisabledReason(getRuleTypeLabel('query'))
+    );
+  });
+
+  it('disables the button with a tooltip for a non-ES|QL rule creation form', () => {
+    mockFormatRule.mockReturnValue({ name: 'Formatted Rule' });
+
+    render(
+      <AddRuleAttachmentToChatButton
+        defineStepData={{ ruleType: 'query' } as DefineStepRule}
+        aboutStepData={aboutStepDataMock}
+        scheduleStepData={scheduleStepDataMock}
+        actionsStepData={actionsStepDataMock}
+        actionTypeRegistry={actionTypeRegistryMock}
+        pathway="rule_editing"
+      />
+    );
+
+    const newAttachmentProps = mockNewAgentBuilderAttachment.mock.calls[0][0];
+    expect(newAttachmentProps.disabled).toBe(true);
+    expect(newAttachmentProps.disabledTooltip).toBe(
+      getNonEsqlRuleActionDisabledReason(getRuleTypeLabel('query'))
+    );
   });
 });

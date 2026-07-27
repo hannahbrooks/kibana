@@ -395,7 +395,7 @@ steps:
                 risk_score: "${{ steps.fetch_rule.output.risk_score }}"
                 severity: "{{ steps.fetch_rule.output.severity }}"
                 interval: "{{ steps.fetch_rule.output.interval }}"
-                invocationCount: 1
+                invocationCount: 24
                 timeframeEnd: "now"
 
           - name: preview_after
@@ -422,7 +422,7 @@ steps:
                 risk_score: "${{ steps.fetch_rule.output.risk_score }}"
                 severity: "{{ steps.fetch_rule.output.severity }}"
                 interval: "{{ steps.fetch_rule.output.interval }}"
-                invocationCount: 1
+                invocationCount: 24
                 timeframeEnd: "now"
 
           # Count alerts written to the preview index for each run. The previewId

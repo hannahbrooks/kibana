@@ -5,7 +5,7 @@
  * 2.0.
  */
 
-import { getCustomQueryRuleParams } from '../../../../objects/rule';
+import { getCustomQueryRuleParams, getEsqlRule } from '../../../../objects/rule';
 import { createRule } from '../../../../tasks/api_calls/rules';
 import { createAzureConnector } from '../../../../tasks/api_calls/connectors';
 import { deleteAlertsAndRules, deleteConnectors } from '../../../../tasks/api_calls/common';
@@ -17,11 +17,10 @@ import { visitRuleEditPage } from '../../../../tasks/edit_rule';
 import { setPreferredChatExperienceToAgent } from '../../../../tasks/api_calls/kibana_advanced_settings';
 import {
   clickNewAgentBuilderAttachmentButton,
-  assertAgentBuilderConversationInputEditorContains,
+  assertAgentBuilderConversationInputEditorIsEmpty,
+  assertNewAgentBuilderAttachmentButtonIsDisabled,
 } from '../../../../tasks/agent_builder';
 import { NEW_AGENT_BUILDER_ATTACHMENT_BUTTON } from '../../../../screens/agent_builder';
-
-const prompt = 'Analyze the attached Security detection rule and provide actionable insights.';
 
 describe(
   'Add rule attachment to chat button',
@@ -37,36 +36,55 @@ describe(
       setPreferredChatExperienceToAgent();
     });
 
-    it('should show the "Add to chat" button on the rule creation page', () => {
+    it('disables the button on the rule creation page until an ES|QL rule type is selected', () => {
       visit(CREATE_RULE_URL);
 
-      cy.get(NEW_AGENT_BUILDER_ATTACHMENT_BUTTON).should('be.visible');
-      clickNewAgentBuilderAttachmentButton();
-      assertAgentBuilderConversationInputEditorContains(prompt);
+      // The form defaults to a non-ES|QL rule type, so AI rule creation starts disabled.
+      assertNewAgentBuilderAttachmentButtonIsDisabled();
     });
 
-    it('should show the "Add to chat" button on the rule details page', () => {
+    it('shows the button enabled with an empty chat input on the ES|QL rule details page', () => {
+      createRule(getEsqlRule({ rule_id: 'test-esql-rule', name: 'Test ES|QL Rule' })).then(
+        (response) => {
+          visitRuleDetailsPage(response.body.id);
+        }
+      );
+
+      cy.get(NEW_AGENT_BUILDER_ATTACHMENT_BUTTON).should('be.visible').and('not.be.disabled');
+      clickNewAgentBuilderAttachmentButton();
+      assertAgentBuilderConversationInputEditorIsEmpty();
+    });
+
+    it('shows the button enabled with an empty chat input on the ES|QL rule editing page', () => {
+      createRule(getEsqlRule({ rule_id: 'test-esql-rule', name: 'Test ES|QL Rule' })).then(
+        (response) => {
+          visitRuleEditPage(response.body.id);
+        }
+      );
+
+      cy.get(NEW_AGENT_BUILDER_ATTACHMENT_BUTTON).should('be.visible').and('not.be.disabled');
+      clickNewAgentBuilderAttachmentButton();
+      assertAgentBuilderConversationInputEditorIsEmpty();
+    });
+
+    it('disables the button on a non-ES|QL rule details page', () => {
       createRule(
         getCustomQueryRuleParams({ rule_id: 'test-rule', name: 'Test Rule', enabled: false })
       ).then((response) => {
         visitRuleDetailsPage(response.body.id);
       });
 
-      cy.get(NEW_AGENT_BUILDER_ATTACHMENT_BUTTON).should('be.visible');
-      clickNewAgentBuilderAttachmentButton();
-      assertAgentBuilderConversationInputEditorContains(prompt);
+      assertNewAgentBuilderAttachmentButtonIsDisabled();
     });
 
-    it('should show the "Add to chat" button on the rule editing page', () => {
+    it('disables the button on a non-ES|QL rule editing page', () => {
       createRule(
         getCustomQueryRuleParams({ rule_id: 'test-rule', name: 'Test Rule', enabled: false })
       ).then((response) => {
         visitRuleEditPage(response.body.id);
       });
 
-      cy.get(NEW_AGENT_BUILDER_ATTACHMENT_BUTTON).should('be.visible');
-      clickNewAgentBuilderAttachmentButton();
-      assertAgentBuilderConversationInputEditorContains(prompt);
+      assertNewAgentBuilderAttachmentButtonIsDisabled();
     });
   }
 );

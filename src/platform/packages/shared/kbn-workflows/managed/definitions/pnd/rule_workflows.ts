@@ -31,7 +31,18 @@ export const PND_RULE_TUNING_WORKFLOW = {
   id: PND_RULE_TUNING_WORKFLOW_ID,
   management: PND_RULE_WORKFLOW_MANAGEMENT,
   pluginId: PND_MANAGED_WORKFLOW_PLUGIN_ID,
-  version: 3,
+  // 4: diagnose_rule pins connector_id and receives the fetch_fp_entities breakdown.
+  // 5: diagnose_rule states the change_types in no priority order, stops delegating to
+  //    the advisory investigate-rule skill, and is shown the rule's own query and scoring.
+  // 6: diagnose_rule states that rule type gates exception/query, and no longer offers
+  //    suppression for a concentrated entity cluster (not a change_type it can emit).
+  // 7: the risk_score criterion is tied to the rule's current scoring and to
+  //    entity-spread, instead of a subjective "low-priority noise" judgement.
+  // 8: diagnose_rule invokes skill://investigate-rule again (restoring the shared chat/worker
+  //    investigation path) while binding the answer to this workflow's schema and criteria.
+  // 9: fetch_open_entities surfaces still-open (live) alerts per entity to diagnose_rule, and
+  //    the manual criterion treats FP/live entity overlap as decisive evidence.
+  version: 9,
   yaml: RULE_TUNING_YAML,
 } as const satisfies ManagedWorkflowDefinition;
 

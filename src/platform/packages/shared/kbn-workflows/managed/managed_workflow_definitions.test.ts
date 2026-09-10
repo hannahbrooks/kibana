@@ -13,6 +13,9 @@ import { managedWorkflowDefinitions } from '.';
 import type { ManagedWorkflowTemplateValuesById } from '.';
 import {
   EXAMPLE_MANAGED_WORKFLOW_ID,
+  PND_RULE_CREATION_WORKFLOW_ID,
+  PND_RULE_PREVIEW_WORKFLOW_ID,
+  PND_RULE_TUNING_WORKFLOW_ID,
   PND_WORKER_DARK_CONTINUOUS_THREAT_HUNT_WORKFLOW_ID,
   PND_WORKER_DETECTION_RULE_CREATION_WORKFLOW_ID,
   PND_WORKER_DETECTION_RULE_TUNING_WORKFLOW_ID,
@@ -22,11 +25,15 @@ import {
   SIGNIFICANT_EVENTS_SCHEDULED_DETECTION_WORKFLOW_ID,
   SIGNIFICANT_EVENTS_SCHEDULED_REVIEW_WORKFLOW_ID,
 } from './definitions';
+import { PND_MANAGED_WORKFLOW_PLUGIN_ID } from './definitions/pnd/constants';
 import DARK_CONTINUOUS_THREAT_HUNT_YAML from './definitions/pnd/dark_continuous_threat_hunt.yaml';
 import DETECTION_RULE_CREATION_YAML from './definitions/pnd/detection_rule_creation.yaml';
 import DETECTION_RULE_TUNING_YAML from './definitions/pnd/detection_rule_tuning.yaml';
 import FLOOR_ALERT_TRIAGE_YAML from './definitions/pnd/floor_alert_triage.yaml';
 import FLOOR_ATTACK_DISCOVERY_YAML from './definitions/pnd/floor_attack_discovery.yaml';
+import RULE_CREATION_YAML from './definitions/pnd/rule_creation.yaml';
+import RULE_PREVIEW_YAML from './definitions/pnd/rule_preview.yaml';
+import RULE_TUNING_YAML from './definitions/pnd/rule_tuning.yaml';
 import type { ManagedWorkflowDefinition, ManagedWorkflowTemplateValues } from './types';
 import { WorkflowSchemaBase } from '../spec/schema';
 
@@ -144,21 +151,53 @@ function createContentFingerprint(content: string): string {
   return fingerprint.toString(16).padStart(8, '0');
 }
 
-it.each([
-  [PND_WORKER_FLOOR_ALERT_TRIAGE_WORKFLOW_ID, FLOOR_ALERT_TRIAGE_YAML, '1:d6a82eff'],
-  [PND_WORKER_FLOOR_ATTACK_DISCOVERY_WORKFLOW_ID, FLOOR_ATTACK_DISCOVERY_YAML, '2:d13818a0'],
-  [
-    PND_WORKER_DARK_CONTINUOUS_THREAT_HUNT_WORKFLOW_ID,
+/**
+ * Fingerprints for every managed definition that ships a statically imported YAML string.
+ *
+ * `yamlTemplate` definitions are hashed from their function source, but an imported YAML
+ * string is invisible to that hash: editing the file changes what new spaces install while
+ * already-installed spaces keep the old copy until `definition.version` is bumped. These
+ * fingerprints force the bump to happen in the same change as the edit.
+ */
+const YAML_FINGERPRINTS: Record<string, readonly [string, string]> = {
+  [PND_WORKER_FLOOR_ALERT_TRIAGE_WORKFLOW_ID]: [FLOOR_ALERT_TRIAGE_YAML, '1:d6a82eff'],
+  [PND_WORKER_FLOOR_ATTACK_DISCOVERY_WORKFLOW_ID]: [FLOOR_ATTACK_DISCOVERY_YAML, '2:d13818a0'],
+  [PND_WORKER_DARK_CONTINUOUS_THREAT_HUNT_WORKFLOW_ID]: [
     DARK_CONTINUOUS_THREAT_HUNT_YAML,
     '2:de85a75a',
   ],
-  [PND_WORKER_DETECTION_RULE_TUNING_WORKFLOW_ID, DETECTION_RULE_TUNING_YAML, '1:f39d6360'],
-  [PND_WORKER_DETECTION_RULE_CREATION_WORKFLOW_ID, DETECTION_RULE_CREATION_YAML, '1:a6804a44'],
-] as const)(
+  [PND_WORKER_DETECTION_RULE_TUNING_WORKFLOW_ID]: [DETECTION_RULE_TUNING_YAML, '1:f39d6360'],
+  [PND_WORKER_DETECTION_RULE_CREATION_WORKFLOW_ID]: [DETECTION_RULE_CREATION_YAML, '1:a6804a44'],
+  [PND_RULE_TUNING_WORKFLOW_ID]: [RULE_TUNING_YAML, '9:508b3f80'],
+  [PND_RULE_PREVIEW_WORKFLOW_ID]: [RULE_PREVIEW_YAML, '1:d6f68350'],
+  [PND_RULE_CREATION_WORKFLOW_ID]: [RULE_CREATION_YAML, '2:95f37a04'],
+};
+
+/**
+ * Coverage assertion. The fingerprint table above used to be hand-maintained, which meant
+ * "a guard exists" did not imply "my definition is guarded" — rule_preview and rule_creation
+ * shipped imported YAML with no fingerprint at all and could drift silently. Assert set
+ * COVERAGE against the registry so a newly registered yaml-backed definition fails here
+ * until it is added, instead of being quietly unguarded.
+ */
+it('fingerprints every registered yaml-backed PND managed definition', () => {
+  // Scope: PND owns this table. Other plugins' yaml-backed definitions are theirs to
+  // guard — asserting over the whole registry would fail this suite on their changes.
+  const unguarded = managedWorkflowDefinitions
+    .filter((definition) => definition.pluginId === PND_MANAGED_WORKFLOW_PLUGIN_ID)
+    .filter((definition) => hasYaml(definition))
+    .map(({ id }) => id)
+    .filter((id) => !(id in YAML_FINGERPRINTS))
+    .sort();
+
+  expect(unguarded).toEqual([]);
+});
+
+it.each(Object.entries(YAML_FINGERPRINTS))(
   'requires bumping %s definition.version together with the imported YAML fingerprint',
-  (workflowId, importedYaml, expectedFingerprint) => {
+  (workflowId, [importedYaml, expectedFingerprint]) => {
     const definition = managedWorkflowDefinitions.find(({ id }) => id === workflowId);
-    if (!definition) throw new Error(`Managed worker "${workflowId}" is not registered`);
+    if (!definition) throw new Error(`Managed workflow "${workflowId}" is not registered`);
     const actualFingerprint = `${definition.version}:${createContentFingerprint(importedYaml)}`;
     if (actualFingerprint === expectedFingerprint) {
       return;
@@ -166,7 +205,7 @@ it.each([
     throw new Error(
       `Imported YAML for '${workflowId}' changed (${actualFingerprint}, expected ${expectedFingerprint}). ` +
         `yamlTemplate hashing covers only the function source, not this imported string, so already-installed spaces will not receive the edit until definition.version is bumped. ` +
-        `Bump version in the worker module and update this expected fingerprint in the same change.`
+        `Bump version in the definition module and update this expected fingerprint in the same change.`
     );
   }
 );
@@ -266,4 +305,17 @@ describe('managedWorkflowDefinitions', () => {
       assertWorkflowYamlIsValid(id, renderedYaml);
     }
   );
+});
+
+describe('rule tuning diagnose prompt', () => {
+  // The prompt tells the model to use "the entity breakdown above" to pick the tightest
+  // exception conditions. That sentence is only true if a step actually fetches those
+  // entities AND its output is interpolated into the message — otherwise the model is
+  // told to ground its proposal in evidence that was never supplied, and silently
+  // invents entities instead. Asserting the prompt text alone would not catch that;
+  // the binding between producer step and consumer message is the thing that matters.
+  it('supplies the entity breakdown it instructs the model to use', () => {
+    expect(RULE_TUNING_YAML).toContain('name: fetch_fp_entities');
+    expect(RULE_TUNING_YAML).toContain('{{ steps.fetch_fp_entities.output.values | json }}');
+  });
 });

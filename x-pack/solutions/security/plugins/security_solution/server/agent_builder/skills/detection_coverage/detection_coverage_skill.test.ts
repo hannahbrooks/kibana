@@ -50,9 +50,19 @@ describe('detection-coverage', () => {
     expect([...DETECTION_COVERAGE_VERDICTS]).toEqual([
       'covered_enabled',
       'covered_disabled',
+      'covered_too_narrow',
       'prebuilt_available',
       'no_coverage',
     ]);
+  });
+
+  // The widen route is the only verdict that carries rule content, not just a rule id. The
+  // worker patches that content straight into the saved rule, so the skill must say what
+  // the field is and bound how much of the rule it may change.
+  it('describes the proposed query that covered_too_narrow carries', () => {
+    expect(skill.content).toMatch(/proposed_query.*covered_too_narrow/s);
+    expect(skill.content).toMatch(/in the rule's own language/);
+    expect(skill.content).toMatch(/Never claim you changed anything/);
   });
 
   it('maps every verdict to exactly one route in the verdict table', () => {

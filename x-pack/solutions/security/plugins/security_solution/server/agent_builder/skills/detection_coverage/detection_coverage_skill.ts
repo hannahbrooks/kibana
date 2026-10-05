@@ -18,6 +18,7 @@ import { SECURITY_BUILD_REDIRECT_URL_TOOL_ID } from '../../tools';
 export const DETECTION_COVERAGE_VERDICTS = [
   'covered_enabled',
   'covered_disabled',
+  'covered_too_narrow',
   'prebuilt_available',
   'no_coverage',
 ] as const;
@@ -32,13 +33,13 @@ const DETECTION_COVERAGE_CONTENT = `# Detection Coverage Check
 
 ## Use This Skill
 
-A problem arrives: a behavior is not covered, a hunt found something undetected, or a workflow reports a gap. Creating a rule is a second operation, and often the wrong one. This skill is the first operation: it decides which action actually closes the problem. Creation is only one of four answers.
+A problem arrives: a behavior is not covered, a hunt found something undetected, or a workflow reports a gap. Creating a rule is a second operation, and often the wrong one. This skill is the first operation: it decides which action actually closes the problem. Creation is only one of five answers.
 
 Use this skill when the user or a workflow wants coverage to exist and gives no rule logic. Examples: "I want a rule that covers X" with no query given, "we need to detect X", "we have no coverage for X, what do I do?", or a hunt report that names an uncovered behavior.
 
 The intent is to make coverage, not to ask about it. A question about existing coverage ("do we have a rule for X?", "do we detect X?", "which tactics am I missing?") is a reporting intent and belongs to another skill (see Boundaries). If the user first asks such a question and then wants the gap closed, this skill enters on that second message.
 
-The skill answers one question: is this behavior already covered, and if not, what is the cheapest way to cover it? Enabling or installing an existing rule is far cheaper than writing a new one. And sometimes no rule action is right at all: when the needed data source does not exist, say so and stop.
+The skill answers one question: is this behavior already covered, and if not, what is the cheapest way to cover it? Enabling, installing, or widening an existing rule is far cheaper than writing a new one. And sometimes no rule action is right at all: when the needed data source does not exist, say so and stop.
 
 ## Intent Gate
 
@@ -84,7 +85,7 @@ Call \`load_skill\` with \`find-security-rules\`. Follow that skill's instructio
 - Do not pass \`enabled\`. You need enabled and disabled rules in one result.
 - Up to three searches: one by technique id if you have one, one by the distinctive behavior words, and, when both return nothing, one with the **single most distinctive word** (a protocol, product, or tool word: "SMB", "DNS", "kubectl"). Free text searches rule names, index patterns, and MITRE tactic and technique fields. Extra intent words like "attackers" or "exfiltrating" can hide real matches, so use the single-word probe to broaden the search.
 
-Judge each returned rule with the Match Rubric. An exact match that is enabled means \`covered_enabled\`. Stop. An exact match that is disabled means \`covered_disabled\`. Stop. A close but insufficient rule is not coverage: note it for the final explanation and continue.
+Judge each returned rule with the Match Rubric. An exact match that is enabled means \`covered_enabled\`. Stop. An exact match that is disabled means \`covered_disabled\`. Stop. A **narrow** match means \`covered_too_narrow\`. Stop. Any other close but insufficient rule is not coverage: note it for the final explanation and continue.
 
 ### Step 2: installable prebuilt rules
 
@@ -96,7 +97,7 @@ An exact match means \`prebuilt_available\`, with one guard first: if the single
 
 The loaded skills provide search procedure only. Two of their rules do not apply to this task:
 
-- They say they are read-only and must never suggest enabling or installing a rule. That restriction is theirs, not yours. Your whole purpose is to recommend the cheapest route, including enabling or installing.
+- They say they are read-only and must never suggest enabling, installing, or changing a rule. That restriction is theirs, not yours. Your whole purpose is to recommend the cheapest route, including enabling, installing, or widening a query.
 - Their rendering rules (tables, filter sentences, install recommendations) apply to their own tasks. Your answer follows this skill: one verdict, one rule, one route.
 
 ## Match Rubric
@@ -106,7 +107,13 @@ A rule is an **exact** match when both hold:
 1. It targets the same **behavior**, not just the same tactic or technique. One technique covers many distinct behaviors. \`T1059\` includes PowerShell encoded commands, \`cmd.exe\` spawned by Office, and Python one-liners. A rule for one of them does not cover the others.
 2. Its **data source** is the same. A Windows process rule does not cover a Linux behavior, and an Okta rule does not cover Azure AD.
 
-Everything else is **no match**, including a rule that covers the same behavior but is scoped too narrowly, or one that would cover the gap only after a query change. A shared MITRE technique on its own is never enough. Say "no match" rather than stretching a weak one: a false "already covered" leaves a real gap open. When such a close rule exists, name it in the explanation so the analyst can decide to widen it instead, but the verdict stays \`no_coverage\`.
+A rule is a **narrow** match when it is an exact match on behavior and data source but its query excludes part of the gap: one namespace, one host OS variant, one process name, one account type, where the gap spans more. Three conditions, all required:
+
+1. The rule is **installed and enabled**. A disabled narrow rule is \`covered_disabled\`: enabling is cheaper, and widening can follow once it runs.
+2. Its \`type\` is \`query\`, \`eql\`, or \`esql\`. The widened query is written in the rule's own language, so you must be able to read and rewrite it. A \`threshold\`, \`new_terms\`, \`machine_learning\`, \`threat_match\`, or \`saved_query\` rule is never a narrow match: its query carries settings a rewrite would disturb.
+3. Closing the gap is a **widening**: removing or loosening one constraint in the existing query. If the new query would need a different data source, a new aggregation, or a condition the rule does not already check, it is not the same rule anymore.
+
+Everything else is **no match**. A shared MITRE technique on its own is never enough. Say "no match" rather than stretching a weak one: a false "already covered" leaves a real gap open. When a close rule exists that fails one of the three conditions, name it in the explanation so the analyst can decide to change it by hand, but the verdict stays \`no_coverage\`.
 
 ## Verdicts and Routes
 
@@ -116,10 +123,11 @@ Report exactly one verdict. Each verdict has one route and one owner. You decide
 |---|---|---|---|
 | \`covered_enabled\` | An installed, enabled rule already detects this | none | nobody, you are done |
 | \`covered_disabled\` | An installed rule detects this but is turned off | enable | the user, in the rule page |
+| \`covered_too_narrow\` | An installed, enabled rule targets this behavior but its query misses part of the gap | widen the query | the user, in the rule page |
 | \`prebuilt_available\` | An Elastic prebuilt rule detects this and is not installed | install | the user, in the Add Elastic Rules page |
 | \`no_coverage\` | Nothing matches | create | the \`detection-rule-edit\` skill |
 
-Always carry the supporting rule with the verdict: its name, its \`rule_id\` (signature rule ID for both installed and prebuilt rules), and one sentence saying why it matches or why nothing does. \`no_coverage\` carries no rule.
+Always carry the supporting rule with the verdict: its name, its \`rule_id\` (signature rule ID for both installed and prebuilt rules), and one sentence saying why it matches or why nothing does. \`no_coverage\` carries no rule. \`covered_too_narrow\` also carries the **proposed query**: the rule's current query with the one constraint widened, in the rule's own language, with every other condition and exclusion kept exactly as written.
 
 ## After the Verdict
 
@@ -133,6 +141,7 @@ Then the rule, then the route. Then execute the route:
 
 - **\`covered_enabled\`**: name the rule and stop.
 - **\`covered_disabled\`**: no chat tool can enable a rule. Call \`security.build_redirect_url\` with \`path: "/app/security/rules/id/<the rule's id>"\` and present the link. The enable switch is at the top of that page. Never claim you enabled anything.
+- **\`covered_too_narrow\`**: show the current query and the proposed query, and say in one sentence what the change lets through. Call \`security.build_redirect_url\` with \`path: "/app/security/rules/id/<the rule's id>"\` and present the link; the query is edited on that page. Never claim you changed anything.
 - **\`prebuilt_available\`**: show the evidence so the user can judge the fit: for each candidate (three at most) give the name, one line from its description, and its related integrations. Note when the user does not seem to collect the data the rule needs. Then call \`security.build_redirect_url\` with \`path: "/app/security/rules/add_rules"\` and present the link, with the exact rule name to search for there. The final call is the user's. Never claim you installed anything.
 - **\`no_coverage\`**: say what you searched, name a close rule when one exists and why it does not cover the gap, then offer: "I can draft a new rule for this." On yes, \`detection-rule-edit\` takes over.
 
@@ -150,7 +159,7 @@ Know one limit for Step 1: the search **filter** on installed rules only matches
 
 ## Structured Output
 
-When the caller asks for structured output, fill every field of the requested schema from tool results. Put the verdict in \`verdict\`, the supporting rule in \`rule_id\` and \`rule_name\`, and the one-sentence justification in \`rationale\`. When the schema has a \`prebuilt_version\` field, fill it from the matched prebuilt rule (its \`version\` in the tool result) for \`prebuilt_available\`, and set 0 for every other verdict. Leave \`rule_id\` and \`rule_name\` empty for \`no_coverage\`. In structured-output mode, skip the redirect link and the offers. The calling workflow owns the actions and gates them with its own approval steps.`;
+When the caller asks for structured output, fill every field of the requested schema from tool results. Put the verdict in \`verdict\`, the supporting rule in \`rule_id\` and \`rule_name\`, and the one-sentence justification in \`rationale\`. When the schema has a \`prebuilt_version\` field, fill it from the matched prebuilt rule (its \`version\` in the tool result) for \`prebuilt_available\`, and set 0 for every other verdict. When the schema has a \`proposed_query\` field, fill it with the widened query for \`covered_too_narrow\`, and set an empty string for every other verdict. Leave \`rule_id\` and \`rule_name\` empty for \`no_coverage\`. In structured-output mode, skip the redirect link and the offers. The calling workflow owns the actions and gates them with its own approval steps.`;
 
 export const createDetectionCoverageSkill = (): SkillDefinition<
   'detection-coverage',
@@ -164,7 +173,7 @@ export const createDetectionCoverageSkill = (): SkillDefinition<
       'Make a behavior covered by detection. Use when the user wants coverage to exist ' +
       '("I want a rule that covers X", "we need to detect X", a reported gap) and gives no ' +
       'rule logic. Checks installed rules (enabled and disabled) and the installable prebuilt ' +
-      'catalog, then routes to one action: nothing, enable, install, or create. ' +
+      'catalog, then routes to one action: nothing, enable, widen, install, or create. ' +
       'NOT for questions about existing coverage ("do we have a rule for X?", "which ' +
       'tactics am I missing?") — those are reporting intents for find-security-rules or ' +
       'recommend-prebuilt-rules. Decides only; never mutates.',

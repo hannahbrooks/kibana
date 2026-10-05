@@ -65,6 +65,8 @@ outputs:
     type: boolean
   - name: rule_enabled
     type: boolean
+  - name: rule_widened
+    type: boolean
   - name: rule_installed
     type: boolean
   - name: rule_created
@@ -72,6 +74,8 @@ outputs:
   - name: created_rule_name
     type: string
   - name: enable_approved_not_applied
+    type: boolean
+  - name: widen_approved_not_applied
     type: boolean
   - name: install_approved_not_applied
     type: boolean
@@ -618,6 +622,7 @@ steps:
     with:
       applied: >-
         ${{ steps.propose_enable.output.status == 'succeeded'
+          or steps.propose_widen.output.status == 'succeeded'
           or steps.propose_install.output.status == 'succeeded' }}
       approved: >-
         ${{ steps.propose_enable.output.decision == 'approved'
@@ -643,9 +648,9 @@ steps:
           or steps.run_rule_creation.output.decision == 'dismissed' }}
 
   # The action ran inside the gate, so its result is not visible here; re-read the
-  # rule to learn what actually landed. The enable path reads by the uuid resolved
-  # above; a freshly installed rule had no uuid at proposal time, so that path
-  # reads by signature and a 404 means the install did not happen.
+  # rule to learn what actually landed. The enable and widen paths read by the uuid
+  # resolved above; a freshly installed rule had no uuid at proposal time, so that
+  # path reads by signature and a 404 means the install did not happen.
   - name: refetch_rule
     type: kibana.request
     if: "${{ steps.record_decision.output.applied == true }}"
@@ -659,9 +664,10 @@ steps:
     on-failure:
       continue: true
 
-  # security.rule attachments resolve once and never refresh, so after the enable
-  # the snapshot would silently show the disabled rule. This writes the enabled
-  # rule as version 2; version 1 keeps the before state in the attachment history.
+  # security.rule attachments resolve once and never refresh, so after the action
+  # the snapshot would silently show the disabled rule or the old query. This writes
+  # the changed rule as version 2; version 1 keeps the before state in the
+  # attachment history.
   - name: refresh_rule_attachment
     type: ai.attachment.update
     if: >-
@@ -675,7 +681,7 @@ steps:
       data:
         text: "{{ steps.refetch_rule.output | json }}"
         attachmentLabel: "{{ steps.refetch_rule.output.name }}"
-      description: "Rule after enabling: {{ steps.refetch_rule.output.name }}"
+      description: "Rule after the approved change: {{ steps.refetch_rule.output.name }}"
     on-failure:
       continue: true
 
@@ -721,6 +727,12 @@ steps:
           and not (steps.refetch_rule.error == null
             and steps.refetch_rule.output.id != null
             and steps.refetch_rule.output.enabled == true) }}
+      # The detection API stores the query byte for byte, so the re-read query equals
+      # the proposed one exactly when the edit landed.
+      widen_approved_not_applied: >-
+        ${{ steps.propose_widen.output.decision == 'approved'
+          and not (steps.refetch_rule.error == null
+            and steps.refetch_rule.output.query == steps.coverage_check.output.structured_output.proposed_query) }}
       creation_unreviewed: >-
         ${{ steps.coverage_check.output.structured_output.verdict == 'no_coverage'
           and steps.run_rule_creation.output.reviewed != true }}
@@ -738,7 +750,7 @@ steps:
   - name: close_investigation
     type: switch
     if: "${{ steps.create_investigation.output.conversation_id != null }}"
-    expression: "{% if steps.record_decision.output.approved == true and steps.resolve_outcome.output.enable_approved_not_applied == false and steps.resolve_outcome.output.install_approved_not_applied == false %}approved{% elsif steps.record_decision.output.dismissed == true %}dismissed{% endif %}"
+    expression: "{% if steps.record_decision.output.approved == true and steps.resolve_outcome.output.enable_approved_not_applied == false and steps.resolve_outcome.output.widen_approved_not_applied == false and steps.resolve_outcome.output.install_approved_not_applied == false %}approved{% elsif steps.record_decision.output.dismissed == true %}dismissed{% endif %}"
     cases:
       - match: approved
         steps:
@@ -749,7 +761,7 @@ steps:
               updates:
                 status: closed
                 close_reason: "{% if steps.report_unresolved_rule.output.decision == 'approved' or steps.report_unwidenable_rule.output.decision == 'approved' or steps.report_unconfirmed_rule.output.decision == 'approved' or steps.report_missing_version.output.decision == 'approved' or steps.report_unknown_verdict.output.decision == 'approved' %}other{% else %}resolved{% endif %}"
-                verdict: "{% if steps.propose_enable.output.status == 'succeeded' %}Analyst approved enabling the existing rule.{% elsif steps.propose_install.output.status == 'succeeded' %}Analyst approved installing the prebuilt rule.{% elsif steps.propose_confirm.output.decision == 'approved' %}Analyst confirmed the enabled rule covers the gap.{% elsif steps.run_rule_creation.output.created == true %}Analyst approved creating a new rule for the gap.{% else %}Analyst acknowledged the coverage check report.{% endif %}"
+                verdict: "{% if steps.propose_enable.output.status == 'succeeded' %}Analyst approved enabling the existing rule.{% elsif steps.propose_widen.output.status == 'succeeded' %}Analyst approved widening the existing rule's query.{% elsif steps.propose_install.output.status == 'succeeded' %}Analyst approved installing the prebuilt rule.{% elsif steps.propose_confirm.output.decision == 'approved' %}Analyst confirmed the enabled rule covers the gap.{% elsif steps.run_rule_creation.output.created == true %}Analyst approved creating a new rule for the gap.{% else %}Analyst acknowledged the coverage check report.{% endif %}"
             on-failure:
               continue: true
 
@@ -791,6 +803,7 @@ steps:
         and steps.resolve_outcome.output.decided == true
         and steps.resolve_outcome.output.creation_unreviewed == false
         and steps.resolve_outcome.output.enable_approved_not_applied == false
+        and steps.resolve_outcome.output.widen_approved_not_applied == false
         and steps.resolve_outcome.output.install_approved_not_applied == false }}
     with:
       ai_index_id: "{{ inputs.ai_index_id }}"
@@ -815,6 +828,10 @@ steps:
         ${{ steps.record_decision.output.applied == true
           and steps.refetch_rule.error == null
           and steps.refetch_rule.output.enabled == true }}
+      rule_widened: >-
+        ${{ steps.propose_widen.output.status == 'succeeded'
+          and steps.refetch_rule.error == null
+          and steps.refetch_rule.output.query == steps.coverage_check.output.structured_output.proposed_query }}
       rule_installed: >-
         ${{ steps.propose_install.output.status == 'succeeded'
           and steps.refetch_rule.error == null
@@ -822,6 +839,7 @@ steps:
       # Approved but not applied. One flag per action, read from `resolve_outcome`, so a
       # true flag here also means the indicator is still pending.
       enable_approved_not_applied: "${{ steps.resolve_outcome.output.enable_approved_not_applied }}"
+      widen_approved_not_applied: "${{ steps.resolve_outcome.output.widen_approved_not_applied }}"
       install_approved_not_applied: "${{ steps.resolve_outcome.output.install_approved_not_applied }}"
       # Two different failures. The read found no indicator, so the check never ran. Or
       # the check ran and returned no verdict. In both cases nobody was asked.

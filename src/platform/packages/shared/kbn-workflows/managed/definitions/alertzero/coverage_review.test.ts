@@ -9,6 +9,7 @@
 
 import { parse } from 'yaml';
 import {
+  ALERTZERO_ACTION_EDIT_RULE_WORKFLOW_ID,
   ALERTZERO_ACTION_ENABLE_RULE_WORKFLOW_ID,
   ALERTZERO_ACTION_INSTALL_PREBUILT_RULE_WORKFLOW_ID,
   ALERTZERO_COVERAGE_REVIEW_WORKFLOW,
@@ -57,7 +58,11 @@ const PROPOSAL_STEPS = [
 
 const REPORT_STEPS = PROPOSAL_STEPS.filter((name) => name.startsWith('report_'));
 
-const APPLIED_FLAGS = ['enable_approved_not_applied', 'install_approved_not_applied'] as const;
+const APPLIED_FLAGS = [
+  'enable_approved_not_applied',
+  'widen_approved_not_applied',
+  'install_approved_not_applied',
+] as const;
 
 interface YamlStep {
   name: string;
@@ -119,6 +124,7 @@ const evaluateExpression = (expression: string, context: Record<string, unknown>
 
 const appliedOutcome = {
   enable_approved_not_applied: false,
+  widen_approved_not_applied: false,
   install_approved_not_applied: false,
 };
 
@@ -212,6 +218,25 @@ describe('Detection Coverage review', () => {
       expect(routeOf('report_unresolved_rule')).toContain('steps.resolve_rule.output.id == null');
     });
 
+    // The edit action writes the query into the saved object, so it needs both the
+    // uuid and a query to write; either missing goes to the manual report.
+    it.each([
+      ['resolved with a query', { id: 'r1' }, 'process where true', true],
+      ['resolved without a query', { id: 'r1' }, '', false],
+      ['unresolved with a query', undefined, 'process where true', false],
+    ])('on covered_too_narrow, %s, offers the widen action: %s', (_s, rule, query, expected) => {
+      const ready = evaluateExpression(String(withOf('widen_target')?.ready), {
+        steps: {
+          resolve_rule: { output: rule },
+          coverage_check: { output: { structured_output: { proposed_query: query } } },
+        },
+      });
+      expect(ready).toBe(expected);
+      const context = { steps: { widen_target: { output: { ready } } } };
+      expect(evaluateExpression(routeOf('propose_widen'), context)).toBe(expected);
+      expect(evaluateExpression(routeOf('report_unwidenable_rule'), context)).toBe(!expected);
+    });
+
     // Approving a confirmation drops the gap from future sweeps, so it needs a rule the
     // lookup actually found enabled, not only the model's word for it.
     it.each([
@@ -236,6 +261,8 @@ describe('Detection Coverage review', () => {
       ['covered_disabled', { message: 'HTTP 500: Internal Server Error' }, true],
       ['covered_disabled', { message: 'HTTP 403: Forbidden' }, true],
       ['covered_disabled', null, false],
+      ['covered_too_narrow', { message: 'HTTP 500: Internal Server Error' }, true],
+      ['covered_too_narrow', null, false],
       ['covered_enabled', { message: 'HTTP 404: {"message":"rule_id: \\"x\\" not found"}' }, false],
       ['covered_enabled', { message: 'HTTP 500: Internal Server Error' }, true],
       ['covered_enabled', null, false],
@@ -370,6 +397,7 @@ describe('Detection Coverage review', () => {
     it.each([
       ...REPORT_STEPS.map((name) => [name, 'other']),
       ['propose_enable', 'resolved'],
+      ['propose_widen', 'resolved'],
       ['propose_install', 'resolved'],
       ['propose_confirm', 'resolved'],
       ['run_rule_creation', 'resolved'],
@@ -393,6 +421,12 @@ describe('Detection Coverage review', () => {
         'an approved enable the re-read does not confirm',
         { approved: true, dismissed: false },
         { enable_approved_not_applied: true },
+        '',
+      ],
+      [
+        'an approved widen the re-read does not confirm',
+        { approved: true, dismissed: false },
+        { widen_approved_not_applied: true },
         '',
       ],
       [
@@ -474,6 +508,18 @@ describe('Detection Coverage review', () => {
       expect(enable.actionWorkflowId).toBe(ALERTZERO_ACTION_ENABLE_RULE_WORKFLOW_ID);
       expect(enable.actionInput).toEqual({ id: '{{ steps.resolve_rule.output.id }}' });
       expect(enable.autoApprove).toBe(false);
+    });
+
+    // The edit action patches only the fields it receives, so the proposal must carry
+    // the query and nothing else beside the id, or an unrelated setting could change.
+    it('runs the edit action against the resolved id with only the proposed query', () => {
+      const widen = inputsOf(stepByName('propose_widen'));
+      expect(widen.actionWorkflowId).toBe(ALERTZERO_ACTION_EDIT_RULE_WORKFLOW_ID);
+      expect(widen.actionInput).toEqual({
+        id: '{{ steps.resolve_rule.output.id }}',
+        query: '{{ steps.coverage_check.output.structured_output.proposed_query }}',
+      });
+      expect(widen.autoApprove).toBe(false);
     });
 
     // The rule has no saved object until installed, so the install action is the one
@@ -670,6 +716,10 @@ describe('Detection Coverage review', () => {
     // flag must assert evidence from the re-read rule, never the gate status alone.
     it.each([
       ['rule_enabled', 'steps.refetch_rule.output.enabled == true'],
+      [
+        'rule_widened',
+        'steps.refetch_rule.output.query == steps.coverage_check.output.structured_output.proposed_query',
+      ],
       ['rule_installed', 'steps.refetch_rule.output.id != null'],
     ])('%s asserts mutation evidence, not the gate status alone', (flag, expression) => {
       expect(emit?.[flag]).toContain(expression);
@@ -683,12 +733,41 @@ describe('Detection Coverage review', () => {
         'propose_enable',
         'steps.refetch_rule.output.enabled == true',
       ],
+      [
+        'widen_approved_not_applied',
+        'propose_widen',
+        'steps.refetch_rule.output.query == steps.coverage_check.output.structured_output.proposed_query',
+      ],
       ['install_approved_not_applied', 'propose_install', 'steps.refetch_rule.output.id != null'],
     ])('%s flags an approval that left no evidence', (flag, gate, evidence) => {
       expect(outcome?.[flag]).toContain(`steps.${gate}.output.decision == 'approved'`);
       expect(outcome?.[flag]).toContain(`not (`);
       expect(outcome?.[flag]).toContain(evidence);
     });
+
+    // The API stores the query byte for byte, so the only evidence that the edit
+    // landed is the re-read query equalling the one proposed.
+    it.each([
+      ['the proposed query', 'approved', null, { query: 'process where true' }, false],
+      ['the old query', 'approved', null, { query: 'process where false' }, true],
+      ['not found', 'approved', { message: 'HTTP 404: not found' }, {}, true],
+      ['not approved', 'dismissed', null, {}, false],
+    ])(
+      'widen_approved_not_applied for a re-read rule with %s',
+      (_scenario, gateDecision, error, refetched, expected) => {
+        expect(
+          evaluateExpression(String(outcome?.widen_approved_not_applied), {
+            steps: {
+              propose_widen: { output: { decision: gateDecision } },
+              coverage_check: {
+                output: { structured_output: { proposed_query: 'process where true' } },
+              },
+              refetch_rule: { error, output: refetched },
+            },
+          })
+        ).toBe(expected);
+      }
+    );
 
     // The gap is covered only by an installed rule that is also on, so the re-read has to
     // show both, as on the enable path.
@@ -804,6 +883,7 @@ describe('Detection Coverage review', () => {
         'investigation_id',
         'coverage_confirmed',
         'rule_enabled',
+        'rule_widened',
         'rule_installed',
         'ki_id',
         'ki_processed',

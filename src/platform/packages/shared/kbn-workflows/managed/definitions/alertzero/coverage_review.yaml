@@ -3,8 +3,9 @@ name: Detection Coverage Review
 description: >
   Reviews one knowledge indicator that reports a detection gap. Asks the coverage skill
   whether a rule covers the gap, opens an investigation for the analyst, and records the
-  cheapest fix as a proposal on it: enable a disabled rule, install a prebuilt rule, or
-  confirm an enabled rule already covers the gap. The action runs only once an analyst
+  cheapest fix as a proposal on it: enable a disabled rule, widen the query of a rule
+  that is too narrow, install a prebuilt rule, or confirm an enabled rule already covers
+  the gap. The action runs only once an analyst
   approves. Without a rule, drafts one and proposes it on the same investigation. After
   a decision, marks the indicator processed. Without a decision, or when an approved
   action changed nothing, the indicator stays pending.
@@ -142,7 +143,8 @@ steps:
         Detection gap: {{ steps.gap.output.description }}
         Evidence: {{ steps.gap.output.evidence }}
 
-        Report one verdict. Take every rule name and id from a tool result.
+        Report one verdict. Take every rule name and id from a tool result. For
+        covered_too_narrow, return the widened query in proposed_query.
       schema:
         type: object
         properties:
@@ -151,6 +153,7 @@ steps:
             enum:
               - covered_enabled
               - covered_disabled
+              - covered_too_narrow
               - prebuilt_available
               - no_coverage
           rule_id:
@@ -165,7 +168,13 @@ steps:
             description: Version of the matched prebuilt rule. 0 unless the verdict is prebuilt_available.
           rationale:
             type: string
-        required: [verdict, rule_id, rule_name, prebuilt_version, rationale]
+          proposed_query:
+            type: string
+            maxLength: 65536
+            description: >-
+              The matched rule's query with the one narrowing constraint widened, in the
+              rule's own language. Empty unless the verdict is covered_too_narrow.
+        required: [verdict, rule_id, rule_name, prebuilt_version, rationale, proposed_query]
 
   # Step 4 of 10: resolve the matched rule to its saved object. Only an installed rule
   # has one. Step `if` cannot group with parentheses, so the verdict test lives here and
@@ -175,10 +184,12 @@ steps:
     with:
       installed: >-
         ${{ steps.coverage_check.output.structured_output.verdict == 'covered_enabled'
-          or steps.coverage_check.output.structured_output.verdict == 'covered_disabled' }}
+          or steps.coverage_check.output.structured_output.verdict == 'covered_disabled'
+          or steps.coverage_check.output.structured_output.verdict == 'covered_too_narrow' }}
 
-  # The agent reports the signature rule_id; the enable action, the rule link and
-  # the attachment refresh all address the saved object, so resolve its uuid once.
+  # The agent reports the signature rule_id; the enable and edit actions, the rule
+  # link and the attachment refresh all address the saved object, so resolve its
+  # uuid once.
   # A 404 leaves `id` unset and routes the verdict to the action-less report below;
   # any other failure stops the review in `fail_rule_lookup`.
   - name: resolve_rule
@@ -278,7 +289,7 @@ steps:
         {% endif %}
       check_line: "**Coverage check:** [agent conversation](/s/{{ workflow.spaceId }}/app/agent_builder/conversations/{{ steps.coverage_check.output.conversation_id }})"
 
-  # Body shared by the four report proposals below: what the check found, where
+  # Body shared by the five report proposals below: what the check found, where
   # to look, and that approving applies nothing.
   - name: compose_report
     type: data.set
@@ -377,6 +388,81 @@ steps:
                   **Coverage check needs a manual follow-up**
 
                   The check matched a disabled rule, but it could not be found by its rule id, so it was not proposed for enabling.
+
+                  {{ steps.compose_report.output.body }}
+                category: configure
+                impact: low
+                confidence: low
+
+      - match: covered_too_narrow
+        steps:
+          # The edit action needs the saved object and a query to write into it. Step
+          # `if` cannot group with parentheses, so the test lives here and is read
+          # below as a flag.
+          - name: widen_target
+            type: data.set
+            with:
+              ready: >-
+                ${{ steps.resolve_rule.output.id != null
+                  and steps.coverage_check.output.structured_output.proposed_query != '' }}
+
+          # Same edit action the tuning review uses; it patches only the fields it is
+          # given, so the rule keeps its name, schedule and every other setting.
+          - name: propose_widen
+            type: workflow.execute
+            if: "${{ steps.widen_target.output.ready == true }}"
+            with:
+              workflow-id: system-create-alertzero-proposal
+              inputs:
+                conversationId: "{{ steps.create_investigation.output.conversation_id }}"
+                comment: |-
+                  **Widen an existing rule whose query is too narrow for this gap**
+
+                  {{ steps.compose_evidence.output.rule_line }}
+                  **Recommended action:** Widen the rule query
+                  {{ steps.compose_evidence.output.investigation_line }}
+
+                  {{ steps.compose_evidence.output.gap_block }}
+
+                  **Why it is too narrow**
+                  {{ steps.coverage_check.output.structured_output.rationale }}
+
+                  **Current query**
+                  ```
+                  {{ steps.resolve_rule.output.query }}
+                  ```
+
+                  **Proposed query**
+                  ```
+                  {{ steps.coverage_check.output.structured_output.proposed_query }}
+                  ```
+
+                  {{ steps.compose_evidence.output.check_line }}
+
+                  **On approval**
+                  The rule's query is replaced with the proposed query and takes effect on its next scheduled run. No other rule setting changes. Dismissing leaves the rule as it is.
+                actionWorkflowId: system-alertzero-action-edit-rule
+                actionInput:
+                  id: "{{ steps.resolve_rule.output.id }}"
+                  query: "{{ steps.coverage_check.output.structured_output.proposed_query }}"
+                impact: medium
+                confidence: medium
+                # Query edits always wait for an analyst; matches the action's approvalPolicy.
+                autoApprove: false
+
+          # Nothing to widen when the lookup found no saved object or the check gave no
+          # query; the analyst has to edit the rule by hand.
+          - name: report_unwidenable_rule
+            type: workflow.execute
+            if: "${{ steps.widen_target.output.ready != true }}"
+            with:
+              workflow-id: system-create-alertzero-proposal
+              inputs:
+                conversationId: "{{ steps.create_investigation.output.conversation_id }}"
+                comment: |-
+                  **Coverage check needs a manual follow-up**
+
+                  The check matched a rule whose query is too narrow, but it could not be found by its rule id or no widened query was proposed, so no edit was proposed.
 
                   {{ steps.compose_report.output.body }}
                 category: configure
@@ -535,18 +621,22 @@ steps:
           or steps.propose_install.output.status == 'succeeded' }}
       approved: >-
         ${{ steps.propose_enable.output.decision == 'approved'
+          or steps.propose_widen.output.decision == 'approved'
           or steps.propose_install.output.decision == 'approved'
           or steps.propose_confirm.output.decision == 'approved'
           or steps.report_unresolved_rule.output.decision == 'approved'
+          or steps.report_unwidenable_rule.output.decision == 'approved'
           or steps.report_unconfirmed_rule.output.decision == 'approved'
           or steps.report_missing_version.output.decision == 'approved'
           or steps.report_unknown_verdict.output.decision == 'approved'
           or steps.run_rule_creation.output.decision == 'approved' }}
       dismissed: >-
         ${{ steps.propose_enable.output.decision == 'dismissed'
+          or steps.propose_widen.output.decision == 'dismissed'
           or steps.propose_install.output.decision == 'dismissed'
           or steps.propose_confirm.output.decision == 'dismissed'
           or steps.report_unresolved_rule.output.decision == 'dismissed'
+          or steps.report_unwidenable_rule.output.decision == 'dismissed'
           or steps.report_unconfirmed_rule.output.decision == 'dismissed'
           or steps.report_missing_version.output.decision == 'dismissed'
           or steps.report_unknown_verdict.output.decision == 'dismissed'
@@ -658,7 +748,7 @@ steps:
               conversation_id: "{{ steps.create_investigation.output.conversation_id }}"
               updates:
                 status: closed
-                close_reason: "{% if steps.report_unresolved_rule.output.decision == 'approved' or steps.report_unconfirmed_rule.output.decision == 'approved' or steps.report_missing_version.output.decision == 'approved' or steps.report_unknown_verdict.output.decision == 'approved' %}other{% else %}resolved{% endif %}"
+                close_reason: "{% if steps.report_unresolved_rule.output.decision == 'approved' or steps.report_unwidenable_rule.output.decision == 'approved' or steps.report_unconfirmed_rule.output.decision == 'approved' or steps.report_missing_version.output.decision == 'approved' or steps.report_unknown_verdict.output.decision == 'approved' %}other{% else %}resolved{% endif %}"
                 verdict: "{% if steps.propose_enable.output.status == 'succeeded' %}Analyst approved enabling the existing rule.{% elsif steps.propose_install.output.status == 'succeeded' %}Analyst approved installing the prebuilt rule.{% elsif steps.propose_confirm.output.decision == 'approved' %}Analyst confirmed the enabled rule covers the gap.{% elsif steps.run_rule_creation.output.created == true %}Analyst approved creating a new rule for the gap.{% else %}Analyst acknowledged the coverage check report.{% endif %}"
             on-failure:
               continue: true

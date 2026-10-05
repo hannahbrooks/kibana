@@ -28,6 +28,7 @@ import { createWorkflowLiquidEngine } from '../../../common/utils';
 const VERDICTS = [
   'covered_enabled',
   'covered_disabled',
+  'covered_too_narrow',
   'prebuilt_available',
   'no_coverage',
 ] as const;
@@ -36,6 +37,7 @@ const VERDICTS = [
 const CASE_STEPS = {
   no_coverage: ['run_rule_creation'],
   covered_disabled: ['propose_enable', 'report_unresolved_rule'],
+  covered_too_narrow: ['widen_target', 'propose_widen', 'report_unwidenable_rule'],
   prebuilt_available: ['install_target', 'propose_install', 'report_missing_version'],
   covered_enabled: ['propose_confirm', 'report_unconfirmed_rule'],
 } as const;
@@ -44,6 +46,8 @@ const CASE_STEPS = {
 const PROPOSAL_STEPS = [
   'propose_enable',
   'report_unresolved_rule',
+  'propose_widen',
+  'report_unwidenable_rule',
   'propose_install',
   'report_missing_version',
   'propose_confirm',

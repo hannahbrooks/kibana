@@ -1,21 +1,21 @@
 {
-  "sha1": "",
+  "sha1": "f8af8cf78d4405e24325f3de741722e037a468c4",
   "testChannels": [
     "ci-on-commit"
   ],
   "tests": [
     {
-      "id": "5a36461289b76ea-406b59f2d613441",
-      "title": "Rule Tuning review - real model assisted: the worker reviews a noisy rule on a real model",
-      "expectedStatus": "skipped",
+      "id": "5a36461289b76ea-c3439fb0598df55",
+      "title": "Rule Tuning review - real model assisted: approving the proposal applies the change the model chose and tags the alerts applied",
+      "expectedStatus": "passed",
       "tags": [
         "@local-stateful-classic",
         "@cloud-stateful-classic"
       ],
       "location": {
         "file": "x-pack/solutions/security/plugins/security_solution/test/scout_alertzero_real_llm/api/tests/rule_tuning_review_real_llm.spec.ts",
-        "line": 26,
-        "column": 3
+        "line": 224,
+        "column": 38
       }
     }
   ]

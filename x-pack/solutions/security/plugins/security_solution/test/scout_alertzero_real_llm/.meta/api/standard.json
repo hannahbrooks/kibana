@@ -1,0 +1,22 @@
+{
+  "sha1": "",
+  "testChannels": [
+    "ci-on-commit"
+  ],
+  "tests": [
+    {
+      "id": "5a36461289b76ea-406b59f2d613441",
+      "title": "Rule Tuning review - real model assisted: the worker reviews a noisy rule on a real model",
+      "expectedStatus": "skipped",
+      "tags": [
+        "@local-stateful-classic",
+        "@cloud-stateful-classic"
+      ],
+      "location": {
+        "file": "x-pack/solutions/security/plugins/security_solution/test/scout_alertzero_real_llm/api/tests/rule_tuning_review_real_llm.spec.ts",
+        "line": 26,
+        "column": 3
+      }
+    }
+  ]
+}

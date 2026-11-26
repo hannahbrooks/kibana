@@ -38,7 +38,7 @@ import {
   enableCcm,
   pinModelToEndpoint,
   readDiagnosis,
-  resolveRealModel,
+  REAL_LLM_INFERENCE_ID,
   type Diagnosis,
 } from '../fixtures/real_llm';
 
@@ -84,13 +84,11 @@ interface CaseResult {
  *
  * Local only, and excluded from CI in `.buildkite/scout_ci_config.yml`:
  *   export KIBANA_EIS_CCM_API_KEY="$(vault read -field key secret/kibana-issues/dev/inference/kibana-eis-ccm)"
- *   node scripts/discover_eis_models.js
  *   node scripts/scout start-server --arch stateful --domain classic --serverConfigSet alertzero_real_llm
  *   node scripts/playwright test --config <this folder>/playwright.config.ts --project local
  */
 apiTest.describe('Rule Tuning review - real model', { tag: [...tags.stateful.classic] }, () => {
   let adminHeaders: Record<string, string>;
-  let inferenceId: string;
 
   /**
    * Sets up a space with one rule, runs the worker in it, decides the review's proposals in
@@ -120,7 +118,7 @@ apiTest.describe('Rule Tuning review - real model', { tag: [...tags.stateful.cla
       await apiServices.spaces.create({ id: spaceId, name: spaceId });
       await enableAlertZeroInSpace(space);
 
-      await pinModelToEndpoint({ ...space, inferenceId });
+      await pinModelToEndpoint({ ...space, inferenceId: REAL_LLM_INFERENCE_ID });
       serviceAccountId = await createWorkerServiceAccount(space);
       const rule = await seedRuleWithFalsePositives({
         ...space,
@@ -226,11 +224,40 @@ apiTest.describe('Rule Tuning review - real model', { tag: [...tags.stateful.cla
     if (!apiKey) {
       throw new Error(`${EIS_CCM_API_KEY_ENV} is not set. See the comment on this test.`);
     }
-    ({ inferenceId } = resolveRealModel());
-    await enableCcm(esClient, apiKey);
+    await enableCcm(esClient, apiKey, REAL_LLM_INFERENCE_ID);
     const { cookieHeader } = await samlAuth.asInteractiveUser('admin');
     adminHeaders = { ...cookieHeader, 'kbn-xsrf': 'true', 'x-elastic-internal-origin': 'kibana' };
   });
+
+  /**
+   * The change types the review can apply to a query rule each land on the rule in their own way.
+   * A manual proposal has no action, so the rule keeps its revision.
+   */
+  const expectChangeApplied = async (
+    esClient: EsClient,
+    { diagnosis: { changeType, proposal }, rule, ruleAfter, space }: CaseResult
+  ): Promise<void> => {
+    const landed: Record<string, () => boolean | Promise<boolean>> = {
+      query: () => ruleAfter.query === proposal.proposed_query,
+      exception: async () =>
+        (await readRuleExceptionItems({ ...space, rule: ruleAfter })).length > 0,
+      risk_score: () => ruleAfter.risk_score === proposal.proposed_risk_score,
+      schedule: () => ruleAfter.interval === proposal.proposed_interval,
+      manual: () => true,
+    };
+    const hasLanded: (() => boolean | Promise<boolean>) | undefined = landed[changeType];
+    expect(hasLanded, `The model proposed an unexpected change type: ${changeType}`).toBeDefined();
+    expect(await hasLanded?.(), `The ${changeType} change did not land on the rule`).toBe(true);
+    // An applied change is saved as one new rule version.
+    expect(ruleAfter.revision).toBe(rule.revision + (changeType === 'manual' ? 0 : 1));
+    const alertTags = await waitForAlertTag(
+      esClient,
+      space.spaceId,
+      rule.ruleId,
+      changeType === 'manual' ? 'detection-watch:tuning-acknowledged' : APPLIED_TAG
+    );
+    expect(alertTags).toHaveLength(FP_ALERT_COUNT);
+  };
 
   apiTest(
     'assisted: approving the proposal applies the change the model chose and tags the alerts applied',
@@ -239,35 +266,19 @@ apiTest.describe('Rule Tuning review - real model', { tag: [...tags.stateful.cla
       await runReviewCase(
         { apiClient, apiServices, esClient, log },
         { name: 'assisted-approve', autonomy: 'assisted', decisions: ['approve'] },
-        async ({ diagnosis: { changeType, proposal }, rule, ruleAfter, space }) => {
-          // The change types the review can apply to a query rule. Each lands on the rule in its
-          // own way; a manual proposal has no action, so the rule keeps its revision.
-          const landed: Record<string, () => boolean | Promise<boolean>> = {
-            query: () => ruleAfter.query === proposal.proposed_query,
-            exception: async () =>
-              (await readRuleExceptionItems({ ...space, rule: ruleAfter })).length > 0,
-            risk_score: () => ruleAfter.risk_score === proposal.proposed_risk_score,
-            schedule: () => ruleAfter.interval === proposal.proposed_interval,
-            manual: () => true,
-          };
-          const hasLanded: (() => boolean | Promise<boolean>) | undefined = landed[changeType];
-          expect(
-            hasLanded,
-            `The model proposed an unexpected change type: ${changeType}`
-          ).toBeDefined();
-          expect(await hasLanded?.(), `The ${changeType} change did not land on the rule`).toBe(
-            true
-          );
-          // An applied change is saved as one new rule version.
-          expect(ruleAfter.revision).toBe(rule.revision + (changeType === 'manual' ? 0 : 1));
-          const alertTags = await waitForAlertTag(
-            esClient,
-            space.spaceId,
-            rule.ruleId,
-            changeType === 'manual' ? 'detection-watch:tuning-acknowledged' : APPLIED_TAG
-          );
-          expect(alertTags).toHaveLength(FP_ALERT_COUNT);
-        }
+        (result) => expectChangeApplied(esClient, result)
+      );
+    }
+  );
+
+  apiTest(
+    'manual: approving the entry gate and the proposal applies the change the model chose and tags the alerts applied',
+    async ({ apiClient, apiServices, esClient, log }) => {
+      apiTest.setTimeout(TEST_TIMEOUT_MS);
+      await runReviewCase(
+        { apiClient, apiServices, esClient, log },
+        { name: 'manual-approve', autonomy: 'manual', decisions: ['approve', 'approve'] },
+        (result) => expectChangeApplied(esClient, result)
       );
     }
   );

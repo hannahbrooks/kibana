@@ -9,32 +9,14 @@
 
 import type { ScoutServerConfig } from '../../../../../types';
 import { defaultConfig } from '../../default/stateful/base.config';
-import { getAgentBuilderSmokeEisModels } from '../../agent_builder_smoke/eis_models';
 
 // Elastic Inference Service QA base URL (Elasticsearch Cloud Connected Mode).
 const EIS_QA_URL = 'https://inference.eu-west-1.aws.svc.qa.elastic.cloud';
 
-/** A preconfigured connector for each EIS model that `target/eis_models.json` lists. */
-const buildEisPreconfiguredConnectors = (): Record<string, unknown> =>
-  Object.fromEntries(
-    getAgentBuilderSmokeEisModels().map(({ modelId, inferenceId }) => [
-      `eis-${modelId}`,
-      {
-        name: `EIS ${modelId}`,
-        actionTypeId: '.inference',
-        exposeConfig: true,
-        config: { provider: 'elastic', taskType: 'chat_completion', inferenceId },
-        secrets: {},
-      },
-    ])
-  );
-
 /**
  * Scout server config for tests that run the AlertZero workers against a real model: the
- * `alertzero` flags, plus the live EIS setup of `agent_builder_smoke`.
- *
- * Needs `target/eis_models.json` (`node scripts/discover_eis_models.js`) and, in the test, the
- * EIS CCM key in `KIBANA_EIS_CCM_API_KEY`.
+ * `alertzero` flags, with Elasticsearch pointed at EIS. The test enables Cloud Connected Mode
+ * itself, with the key in `KIBANA_EIS_CCM_API_KEY`.
  *
  * Usage:
  *   node scripts/scout.js start-server --arch stateful --domain classic --serverConfigSet alertzero_real_llm
@@ -55,7 +37,6 @@ export const servers: ScoutServerConfig = {
       // The same two flags as the `alertzero` config set.
       '--xpack.security.serviceAccounts.enabled=true',
       '--server.restrictInternalApis=true',
-      `--xpack.actions.preconfigured=${JSON.stringify(buildEisPreconfiguredConnectors())}`,
     ],
   },
 };

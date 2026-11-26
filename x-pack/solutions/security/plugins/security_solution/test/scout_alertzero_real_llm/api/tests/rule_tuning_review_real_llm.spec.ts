@@ -6,27 +6,20 @@
  */
 
 import { expect } from '@kbn/scout-security/api';
-import type { ApiClientFixture, ApiServicesFixture, EsClient } from '@kbn/scout-security';
-import type { ToolingLog } from '@kbn/tooling-log';
-import { ExecutionStatus, type WorkflowExecutionDto } from '@kbn/workflows';
+import type { EsClient } from '@kbn/scout-security';
 import {
   APPLIED_TAG,
   apiTest,
-  cleanUpReviewCase,
-  createWorkerServiceAccount,
-  driveReview,
-  enableAlertZeroInSpace,
   FP_ALERT_COUNT,
   pinModelToEndpoint,
   readBacktest,
-  readRule,
   readRuleExceptionItems,
-  seedRuleWithFalsePositives,
-  setRuleTuningWorker,
+  runReviewCase,
+  STEP_TIMEOUT_MS,
   tags,
   waitForAlertTag,
-  type RuleState,
-  type SeededRule,
+  type ReviewCaseFixtures,
+  type ReviewCaseResult,
 } from '../../../scout_alertzero/api/fixtures';
 import {
   enableCcm,
@@ -37,8 +30,6 @@ import {
 
 const EIS_CCM_API_KEY_ENV = 'KIBANA_EIS_CCM_API_KEY';
 
-/** Budget of each wait for the review: its start, its investigation and its end. */
-const STEP_TIMEOUT_MS = 180_000;
 /** A real model takes minutes to diagnose, and the proposal only exists after that. */
 const DIAGNOSIS_TIMEOUT_MS = 15 * 60_000;
 /**
@@ -48,24 +39,10 @@ const DIAGNOSIS_TIMEOUT_MS = 15 * 60_000;
  */
 const TEST_TIMEOUT_MS = 120_000 + 3 * STEP_TIMEOUT_MS + 2 * DIAGNOSIS_TIMEOUT_MS + 60_000 + 180_000;
 
-const RUN = Date.now();
-
 const OVERBROAD_QUERY = 'process.name:*';
 
-interface CaseFixtures {
-  apiClient: ApiClientFixture;
-  apiServices: ApiServicesFixture;
-  esClient: EsClient;
-  log: ToolingLog;
-}
-
-interface CaseResult {
-  review: WorkflowExecutionDto;
+interface CaseResult extends ReviewCaseResult {
   diagnosis: Diagnosis;
-  rule: SeededRule;
-  /** The rule as the detection engine has it after the review ended. */
-  ruleAfter: RuleState;
-  space: { apiClient: ApiClientFixture; headers: Record<string, string>; spaceId: string };
 }
 
 /**
@@ -83,75 +60,40 @@ interface CaseResult {
 apiTest.describe('Rule Tuning review - real model', { tag: [...tags.stateful.classic] }, () => {
   let adminHeaders: Record<string, string>;
 
-  /**
-   * Sets up a space with one rule, runs the worker in it, decides the review's proposals in
-   * order, and hands the outcome to `check`. Removes everything it created, whatever `check`
-   * does.
-   */
-  const runReviewCase = async (
-    { apiClient, apiServices, esClient, log }: CaseFixtures,
+  /** `runReviewCase` on the real model, with the diagnosis of the review handed to `check`. */
+  const runRealModelCase = (
+    fixtures: ReviewCaseFixtures,
     {
       name,
       autonomy,
       decisions,
-    }: {
-      name: string;
-      autonomy: 'manual' | 'assisted';
-      decisions: Array<'approve' | 'dismiss'>;
-    },
+    }: { name: string; autonomy: 'manual' | 'assisted'; decisions: Array<'approve' | 'dismiss'> },
     check: (result: CaseResult) => Promise<void>
-  ): Promise<void> => {
-    const spaceId = `scout-tuning-real-llm-${RUN}-${name}`;
-    const space = { apiClient, headers: adminHeaders, spaceId };
-    let serviceAccountId: string | undefined;
-    let eventsIndex: string | undefined;
-
-    try {
-      await apiServices.spaces.create({ id: spaceId, name: spaceId });
-      await enableAlertZeroInSpace(space);
-
-      await pinModelToEndpoint({ ...space, endpointId: REAL_LLM_INFERENCE_ID });
-      serviceAccountId = await createWorkerServiceAccount(space);
-      const rule = await seedRuleWithFalsePositives({
-        ...space,
-        esClient,
-        name: `${spaceId}-rule`,
+  ): Promise<void> =>
+    runReviewCase(
+      fixtures,
+      {
+        name: `real-${name}`,
+        adminHeaders,
         query: OVERBROAD_QUERY,
-      });
-      ({ eventsIndex } = rule);
-
-      // Enabling the worker starts its first run, which finds the seeded rule.
-      await setRuleTuningWorker({
-        ...space,
-        enabled: true,
-        settings: { serviceAccountId, autonomy },
-      });
-      const review = await driveReview({
-        ...space,
+        autonomy,
         decisions,
-        stepTimeoutMs: STEP_TIMEOUT_MS,
         decisionTimeoutMs: DIAGNOSIS_TIMEOUT_MS,
-      });
-
-      expect(review.status, JSON.stringify(review.error)).toBe(ExecutionStatus.COMPLETED);
-      const diagnosis = readDiagnosis(review);
-      log.info(
-        `The model proposed change type ${diagnosis.changeType}. Backtest: ${JSON.stringify(
-          readBacktest(review)
-        )}`
-      );
-      const ruleAfter = await readRule({ ...space, id: rule.id });
-      await check({ review, diagnosis, rule, ruleAfter, space });
-    } finally {
-      await cleanUpReviewCase({
-        ...space,
-        apiServices,
-        esClient,
-        serviceAccountId,
-        eventsIndex,
-      });
-    }
-  };
+        setUpModel: async (space) => {
+          await pinModelToEndpoint({ ...space, endpointId: REAL_LLM_INFERENCE_ID });
+          return undefined;
+        },
+      },
+      async (result) => {
+        const diagnosis = readDiagnosis(result.review);
+        fixtures.log.info(
+          `The model proposed change type ${diagnosis.changeType}. Backtest: ${JSON.stringify(
+            readBacktest(result.review)
+          )}`
+        );
+        await check({ ...result, diagnosis });
+      }
+    );
 
   apiTest.beforeAll(async ({ samlAuth, esClient }) => {
     const apiKey = process.env[EIS_CCM_API_KEY_ENV];
@@ -195,10 +137,10 @@ apiTest.describe('Rule Tuning review - real model', { tag: [...tags.stateful.cla
 
   apiTest(
     'assisted: approving the proposal applies the change the model chose and tags the alerts applied',
-    async ({ apiClient, apiServices, esClient, log }) => {
+    async ({ apiClient, apiServices, esClient, samlAuth, log }) => {
       apiTest.setTimeout(TEST_TIMEOUT_MS);
-      await runReviewCase(
-        { apiClient, apiServices, esClient, log },
+      await runRealModelCase(
+        { apiClient, apiServices, esClient, samlAuth, log },
         { name: 'assisted-approve', autonomy: 'assisted', decisions: ['approve'] },
         (result) => expectChangeApplied(esClient, result)
       );
@@ -207,10 +149,10 @@ apiTest.describe('Rule Tuning review - real model', { tag: [...tags.stateful.cla
 
   apiTest(
     'manual: approving the entry gate and the proposal applies the change the model chose and tags the alerts applied',
-    async ({ apiClient, apiServices, esClient, log }) => {
+    async ({ apiClient, apiServices, esClient, samlAuth, log }) => {
       apiTest.setTimeout(TEST_TIMEOUT_MS);
-      await runReviewCase(
-        { apiClient, apiServices, esClient, log },
+      await runRealModelCase(
+        { apiClient, apiServices, esClient, samlAuth, log },
         { name: 'manual-approve', autonomy: 'manual', decisions: ['approve', 'approve'] },
         (result) => expectChangeApplied(esClient, result)
       );

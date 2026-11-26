@@ -12,31 +12,24 @@ import { ExecutionStatus, type WorkflowExecutionDto } from '@kbn/workflows';
 import {
   APPLIED_TAG,
   apiTest,
-  cancelExecution,
+  cleanUpReviewCase,
   createWorkerServiceAccount,
-  decidePendingProposal,
-  deleteServiceAccount,
-  deleteSpaceAlertsIndex,
+  driveReview,
   enableAlertZeroInSpace,
   FP_ALERT_COUNT,
-  pollFor,
-  readAlertTags,
+  pinModelToEndpoint,
   readBacktest,
   readRule,
   readRuleExceptionItems,
-  runCleanupSteps,
   seedRuleWithFalsePositives,
   setRuleTuningWorker,
   tags,
-  waitForExecution,
-  waitForInvestigation,
-  waitForReviewExecution,
+  waitForAlertTag,
   type RuleState,
   type SeededRule,
 } from '../../../scout_alertzero/api/fixtures';
 import {
   enableCcm,
-  pinModelToEndpoint,
   readDiagnosis,
   REAL_LLM_INFERENCE_ID,
   type Diagnosis,
@@ -111,14 +104,13 @@ apiTest.describe('Rule Tuning review - real model', { tag: [...tags.stateful.cla
     const spaceId = `scout-tuning-real-llm-${RUN}-${name}`;
     const space = { apiClient, headers: adminHeaders, spaceId };
     let serviceAccountId: string | undefined;
-    let reviewId: string | undefined;
     let eventsIndex: string | undefined;
 
     try {
       await apiServices.spaces.create({ id: spaceId, name: spaceId });
       await enableAlertZeroInSpace(space);
 
-      await pinModelToEndpoint({ ...space, inferenceId: REAL_LLM_INFERENCE_ID });
+      await pinModelToEndpoint({ ...space, endpointId: REAL_LLM_INFERENCE_ID });
       serviceAccountId = await createWorkerServiceAccount(space);
       const rule = await seedRuleWithFalsePositives({
         ...space,
@@ -134,31 +126,12 @@ apiTest.describe('Rule Tuning review - real model', { tag: [...tags.stateful.cla
         enabled: true,
         settings: { serviceAccountId, autonomy },
       });
-      reviewId = await waitForReviewExecution({ ...space, timeoutMs: STEP_TIMEOUT_MS });
-      const conversationId = await waitForInvestigation({
+      const review = await driveReview({
         ...space,
-        executionId: reviewId,
-        timeoutMs: STEP_TIMEOUT_MS,
+        decisions,
+        stepTimeoutMs: STEP_TIMEOUT_MS,
+        decisionTimeoutMs: DIAGNOSIS_TIMEOUT_MS,
       });
-      const decidedIds: string[] = [];
-      for (const decision of decisions) {
-        decidedIds.push(
-          await decidePendingProposal({
-            ...space,
-            conversationId,
-            decision,
-            decidedIds,
-            timeoutMs: DIAGNOSIS_TIMEOUT_MS,
-          })
-        );
-      }
-      const review = await waitForExecution(
-        apiClient,
-        adminHeaders,
-        reviewId,
-        STEP_TIMEOUT_MS,
-        spaceId
-      );
 
       expect(review.status, JSON.stringify(review.error)).toBe(ExecutionStatus.COMPLETED);
       const diagnosis = readDiagnosis(review);
@@ -170,54 +143,15 @@ apiTest.describe('Rule Tuning review - real model', { tag: [...tags.stateful.cla
       const ruleAfter = await readRule({ ...space, id: rule.id });
       await check({ review, diagnosis, rule, ruleAfter, space });
     } finally {
-      await runCleanupSteps([
-        {
-          name: 'cancel the review',
-          run: async () => {
-            if (reviewId) await cancelExecution({ ...space, executionId: reviewId });
-          },
-        },
-        {
-          name: 'disable the rule tuning worker',
-          run: () => setRuleTuningWorker({ ...space, enabled: false }),
-        },
-        {
-          name: 'delete the worker service account',
-          run: async () => {
-            if (serviceAccountId) {
-              await deleteServiceAccount({ apiClient, headers: adminHeaders, serviceAccountId });
-            }
-          },
-        },
-        { name: `delete space ${spaceId}`, run: () => apiServices.spaces.delete(spaceId) },
-        {
-          name: 'delete the space alerts index',
-          run: () => deleteSpaceAlertsIndex(esClient, spaceId),
-        },
-        {
-          name: 'delete the source events',
-          run: async () => {
-            if (eventsIndex) {
-              await esClient.indices.deleteDataStream({ name: eventsIndex }, { ignore: [404] });
-            }
-          },
-        },
-      ]);
+      await cleanUpReviewCase({
+        ...space,
+        apiServices,
+        esClient,
+        serviceAccountId,
+        eventsIndex,
+      });
     }
   };
-
-  /** Waits until every alert of the rule carries `tag`, and returns the tags of each alert. */
-  const waitForAlertTag = (esClient: EsClient, spaceId: string, ruleId: string, tag: string) =>
-    pollFor(
-      `every alert to carry ${tag}`,
-      async () => {
-        const found = await readAlertTags({ esClient, spaceId, ruleId });
-        return found.length > 0 && found.every((alertTags) => alertTags.includes(tag))
-          ? found
-          : undefined;
-      },
-      { timeoutMs: 60_000 }
-    );
 
   apiTest.beforeAll(async ({ samlAuth, esClient }) => {
     const apiKey = process.env[EIS_CCM_API_KEY_ENV];

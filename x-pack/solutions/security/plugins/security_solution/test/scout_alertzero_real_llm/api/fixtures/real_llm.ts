@@ -5,26 +5,11 @@
  * 2.0.
  */
 
-import {
-  ALERTZERO_BALANCED_INFERENCE_FEATURE_ID,
-  ALERTZERO_INFERENCE_PARENT_FEATURE_ID,
-} from '@kbn/alertzero-common';
 import type { EsClient } from '@kbn/scout-security';
 import type { JsonObject } from '@kbn/utility-types';
 import type { WorkflowExecutionDto } from '@kbn/workflows';
-import { pollFor, spaceUrl } from '../../../scout_alertzero/api/fixtures';
-import {
-  expectStatus,
-  findStepOutputObject,
-  INTERNAL_V1_HEADERS,
-  type RuleTuningSpaceArgs,
-} from '../../../scout_alertzero/api/fixtures/rule_tuning/common';
-
-const SEARCH_INFERENCE_SETTINGS_PATH = 'internal/search_inference_endpoints/settings';
-
-interface InferenceSettings {
-  data?: { features?: Array<{ feature_id: string }> };
-}
+import { pollFor } from '../../../scout_alertzero/api/fixtures';
+import { findStepOutputObject } from '../../../scout_alertzero/api/fixtures/rule_tuning/common';
 
 /** The EIS endpoint to test: `ALERTZERO_REAL_LLM_ENDPOINT`, or Claude Sonnet 5.5. */
 export const REAL_LLM_INFERENCE_ID =
@@ -67,40 +52,4 @@ export const readDiagnosis = (review: WorkflowExecutionDto): Diagnosis => {
     throw new Error('The diagnosis has no change_type');
   }
   return { changeType, proposal };
-};
-
-/** Points the space's AlertZero models at an inference endpoint. */
-export const pinModelToEndpoint = async ({
-  apiClient,
-  headers,
-  spaceId,
-  inferenceId,
-}: RuleTuningSpaceArgs & { inferenceId: string }): Promise<void> => {
-  const settingsUrl = spaceUrl(SEARCH_INFERENCE_SETTINGS_PATH, spaceId);
-  const current = await apiClient.get<InferenceSettings>(settingsUrl, {
-    headers: { ...headers, ...INTERNAL_V1_HEADERS },
-    responseType: 'json',
-  });
-  expectStatus('Read the inference settings', current);
-  const pinned = new Set<string>([
-    ALERTZERO_INFERENCE_PARENT_FEATURE_ID,
-    ALERTZERO_BALANCED_INFERENCE_FEATURE_ID,
-  ]);
-  const features = (current.body.data?.features ?? []).filter(
-    ({ feature_id: featureId }) => !pinned.has(featureId)
-  );
-  const put = await apiClient.put(settingsUrl, {
-    headers: { ...headers, ...INTERNAL_V1_HEADERS },
-    responseType: 'json',
-    body: {
-      features: [
-        ...features,
-        ...[...pinned].map((featureId) => ({
-          feature_id: featureId,
-          endpoints: [{ id: inferenceId }],
-        })),
-      ],
-    },
-  });
-  expectStatus('Pin the AlertZero features to the model', put);
 };

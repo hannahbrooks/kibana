@@ -17,10 +17,13 @@ export {
   RISK_SCORE_PROPOSAL,
 } from './proposals';
 export {
+  runReviewCase,
   runScriptedReviewCase,
   startReviewHarness,
+  STEP_TIMEOUT_MS,
   TEST_TIMEOUT_MS,
   type ReviewCaseFixtures,
+  type ReviewCaseResult,
 } from './review_case';
 export { cleanUpReviewCase } from './cleanup';
 export {

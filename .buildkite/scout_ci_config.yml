@@ -152,6 +152,7 @@ excluded_configs:
   - x-pack/platform/plugins/shared/workflows_management/test/scout_workflows_oom_testing/api/playwright.config.ts
   - x-pack/solutions/security/plugins/security_solution/test/scout_cps_local/ui/playwright.config.ts
   - x-pack/solutions/security/plugins/security_solution/test/scout_cps_local/api/playwright.config.ts
+  - x-pack/solutions/security/plugins/security_solution/test/scout_alertzero_real_llm/api/playwright.config.ts
   - x-pack/solutions/security/plugins/security_solution/test/scout_edr_real_fleet/shared_host/ui/playwright.config.ts
   - x-pack/solutions/security/plugins/security_solution/test/scout_edr_real_fleet/shared_host/api/playwright.config.ts
   - x-pack/solutions/security/plugins/security_solution/test/scout_edr_real_fleet/tamper_protection/api/playwright.config.ts

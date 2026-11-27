@@ -83,6 +83,7 @@ export const runReviewCase = async (
     query,
     autonomy,
     decisions,
+    decisionTimeoutMs,
     setUpModel,
     onPoll,
     beforeDecision,
@@ -94,6 +95,8 @@ export const runReviewCase = async (
     query: string;
     autonomy: 'manual' | 'assisted';
     decisions: Array<'approve' | 'dismiss'>;
+    /** Budget of each decision, which waits for the proposal to exist. Defaults to a step. */
+    decisionTimeoutMs?: number;
     setUpModel: (space: {
       apiClient: ApiClientFixture;
       headers: Record<string, string>;
@@ -138,6 +141,7 @@ export const runReviewCase = async (
       decisionHeaders,
       decisions,
       stepTimeoutMs: STEP_TIMEOUT_MS,
+      decisionTimeoutMs,
       onPoll,
       beforeDecision,
       onExecutionId: (executionId) => executionIds.push(executionId),
